@@ -35,11 +35,11 @@
 
 | Раздел | Содержание по репозиторию |
 |--------|---------------------------|
-| 1.1 | Elo; независимый Пуассон голов; смесь 65/35 в `Predictor`. Наивная эвристика «5 матчей + округление» — только как **базовый метод для сравнения**, см. [HEURISTIC_FIVE_MATCH.md](HEURISTIC_FIVE_MATCH.md). LLM не классификатор 1X2. |
+| 1.1 | Elo; независимый Пуассон голов; смесь 65/35 в `Predictor`. Разбор фактов и формул: [FORECAST.md](FORECAST.md). Наивная эвристика «5 матчей + округление» — только как **базовый метод для сравнения**, см. [HEURISTIC_FIVE_MATCH.md](HEURISTIC_FIVE_MATCH.md). LLM не классификатор 1X2. |
 | 1.2 | SofaScore, Flashscore, FiveThirtyEight/SPI, Understat. Контраст: десктоп, локальная модель, без live-счёта на free-тарифе football-data.org. |
 | 1.3 | 12 кодов free-тира, дисклеймер в UI, ключ в `.env`, Windows/macOS, лимит 10 запр./мин. |
 | 2.1 | Python 3.11, Flet, httpx, pandas, SQLite, scikit-learn. Слои `ui → services → data/models/ai`. Не называть продукт веб-приложением. |
-| 2.2 | SQLite-кэш (`store.py`), TTL 6 ч для SCHEDULED и 24 ч для FINISHED. Формулы λ и сетка голов 0…8. Не выдумывать PostgreSQL. |
+| 2.2 | SQLite-кэш (`store.py`), TTL 6 ч для SCHEDULED и 24 ч для FINISHED. Формулы λ и сетка голов 0…8 — [FORECAST.md](FORECAST.md). Не выдумывать PostgreSQL. |
 | 2.3 | Flet, тёмная тема, split-экран, гербы из CDN football-data.org. |
 | 3.1 | REST v4 + CSV football-data.co.uk. Поля только из [DATA_SOURCES.md](DATA_SOURCES.md). |
 | 3.2 | Экраны Лиги / Календарь / Прогноз / Настройки. LLM объясняет уже посчитанные вероятности. |
