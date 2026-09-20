@@ -4,6 +4,8 @@
 
 Оглавление из `oglavlenie_vkr.docx` подходит. Не подменять локальную модель вызовом ChatGPT «кто победит».
 
+**Текст на вычитку** (связные § 1.1 и § 2.2, без имён модулей): [vkr/tekst-na-vychitku.md](vkr/tekst-na-vychitku.md). Как отдавать правщику: [vkr/README.md](vkr/README.md). Инженерная сверка формул: [FORECAST.md](FORECAST.md).
+
 ## Тема на титуле
 
 Рекомендуемая формулировка: «Разработка настольного приложения статистического прогнозирования исходов футбольных матчей».
@@ -35,7 +37,7 @@
 
 | Раздел | Содержание по репозиторию |
 |--------|---------------------------|
-| 1.1 | Elo; независимый Пуассон голов; смесь 65/35 в `Predictor`. Разбор фактов и формул: [FORECAST.md](FORECAST.md). Наивная эвристика «5 матчей + округление» — только как **базовый метод для сравнения**, см. [HEURISTIC_FIVE_MATCH.md](HEURISTIC_FIVE_MATCH.md). LLM не классификатор 1X2. |
+| 1.1 | Elo; независимый Пуассон голов; смесь 65/35 в `Predictor`. **Черновик на вычитку:** [vkr/tekst-na-vychitku.md](vkr/tekst-na-vychitku.md). Разбор фактов и формул для кода: [FORECAST.md](FORECAST.md). Наивная эвристика «5 матчей + округление» — только как **базовый метод для сравнения**, см. [HEURISTIC_FIVE_MATCH.md](HEURISTIC_FIVE_MATCH.md). LLM не классификатор 1X2. |
 | 1.2 | SofaScore, Flashscore, FiveThirtyEight/SPI, Understat. Контраст: десктоп, локальная модель, без live-счёта на free-тарифе football-data.org. |
 | 1.3 | 12 кодов free-тира, дисклеймер в UI, ключ в `.env`, Windows/macOS, лимит 10 запр./мин. |
 | 2.1 | Python 3.11, Flet, httpx, pandas, SQLite, scikit-learn. Слои `ui → services → data/models/ai`. Не называть продукт веб-приложением. |

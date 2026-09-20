@@ -21,7 +21,7 @@
 
 - Соблюдать ToS football-data.org: не выкладывать полный дамп API, не долбить лимит.
 - В UI явная подпись: прогноз статистический, не совет ставить деньги.
-- Текст диплома: [VKR.md](VKR.md). Наивная схема «5 матчей + округление» — только база для сравнения, не движок 1X2: [HEURISTIC_FIVE_MATCH.md](HEURISTIC_FIVE_MATCH.md). Что считается фактом и как выводится 1X2: [FORECAST.md](FORECAST.md).
+- Текст диплома: [VKR.md](VKR.md). Черновик глав на вычитку: [vkr/tekst-na-vychitku.md](vkr/tekst-na-vychitku.md). Наивная схема «5 матчей + округление» — только база для сравнения, не движок 1X2: [HEURISTIC_FIVE_MATCH.md](HEURISTIC_FIVE_MATCH.md). Что считается фактом и как выводится 1X2: [FORECAST.md](FORECAST.md).
 - Не хранить персональные данные пользователей.
 
 ## Git

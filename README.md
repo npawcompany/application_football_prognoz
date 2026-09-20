@@ -2,7 +2,7 @@
 
 Десктоп-приложение на Python (Windows и macOS) для статистических прогнозов футбольных матчей: вероятности **1 / X / 2** и текстовый разбор по фактам.
 
-Полное описание: [docs/PRODUCT.md](docs/PRODUCT.md). Архитектура: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Правила: [docs/RULES.md](docs/RULES.md). Документация источников: [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md). Порядок изучения доков: [docs/DOC_STUDY.md](docs/DOC_STUDY.md). Диплом (ВКР): [docs/VKR.md](docs/VKR.md). Расчёт прогноза (факты / оценки / 1X2): [docs/FORECAST.md](docs/FORECAST.md). Наивная эвристика 5 матчей: [docs/HEURISTIC_FIVE_MATCH.md](docs/HEURISTIC_FIVE_MATCH.md).
+Полное описание: [docs/PRODUCT.md](docs/PRODUCT.md). Архитектура: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Правила: [docs/RULES.md](docs/RULES.md). Документация источников: [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md). Порядок изучения доков: [docs/DOC_STUDY.md](docs/DOC_STUDY.md). Диплом (ВКР): [docs/VKR.md](docs/VKR.md). Текст глав 1.1 и 2.2 на вычитку: [docs/vkr/tekst-na-vychitku.md](docs/vkr/tekst-na-vychitku.md). Расчёт прогноза (факты / оценки / 1X2): [docs/FORECAST.md](docs/FORECAST.md). Наивная эвристика 5 матчей: [docs/HEURISTIC_FIVE_MATCH.md](docs/HEURISTIC_FIVE_MATCH.md).
 
 Прогноз **не является** советом ставить деньги.
 
