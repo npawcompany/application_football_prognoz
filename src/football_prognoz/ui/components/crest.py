@@ -125,7 +125,7 @@ def _placeholder(label: str, size: int, color: str) -> ft.Container:
             weight=ft.FontWeight.BOLD,
             color=FG,
         ),
-        border=ft.border.all(1, ft.Colors.with_opacity(0.14, ft.Colors.WHITE)),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.14, ft.Colors.WHITE)),
     )
 
 

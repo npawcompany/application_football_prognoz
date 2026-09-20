@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import flet as ft
 
 from football_prognoz.ai.explainer import Explainer, OpenAICompatClient
@@ -11,8 +13,11 @@ from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.domain.team import Competition
 from football_prognoz.models.predictor import Predictor
 from football_prognoz.services.features import FeatureService
+from football_prognoz.services.filters import filter_competitions, filter_matches
 from football_prognoz.services.matches import MatchService
-from football_prognoz.ui.runtime import info_banner, run_background
+from football_prognoz.ui.components.settings_panel import SettingsForm
+from football_prognoz.ui.components.splash import splash_view
+from football_prognoz.ui.runtime import debounce, info_banner, run_background
 from football_prognoz.ui.theme import (
     BG,
     BODY_PADDING,
@@ -28,6 +33,21 @@ from football_prognoz.ui.views.settings import settings_view
 
 SECTIONS = ("leagues", "fixtures", "match", "settings")
 NAV_INDEX = {name: index for index, name in enumerate(SECTIONS)}
+
+_TRUE = frozenset({"1", "true", "yes", "on"})
+
+
+def _env_flag(value: str | bool) -> str:
+    if isinstance(value, str):
+        return "true" if value.strip().lower() in _TRUE else "false"
+    return "true" if value else "false"
+
+
+def _env_text(value: str | bool | None, default: str = "") -> str:
+    if value is None or isinstance(value, bool):
+        return default
+    text = str(value).strip()
+    return text if text else default
 
 
 def build_service(settings: Settings) -> MatchService:
@@ -64,14 +84,26 @@ class FootballApp:
         self.busy: str | None = None
         self.error: str | None = None
         self.status: str | None = None
+        self.booting = False
+        self.league_query = ""
+        self.favorites_only = False
+        self.team_query = ""
+        self.upcoming_only = True
+        self._splash_message = "Читаем кэш…"
+        self._splash_fraction: float | None = None
+        self._pane = ft.Container(expand=True, padding=BODY_PADDING, bgcolor=BG)
         self.body = ft.Container(expand=True, padding=0, bgcolor=BG)
+        self._rail: ft.NavigationRail | None = None
+        self._nav_bar: ft.NavigationBar | None = None
+        self._rail_mode: bool | None = None
+        self._split_mode: bool | None = None
         self._build_shell()
-        if settings.has_football_key:
-            self._load_leagues()
-        else:
+        if not settings.has_football_key:
             self.section = "settings"
             self.status = "Введите ключ football-data.org, чтобы загрузить лиги."
-            self._render()
+            self._render_panes()
+            return
+        self._start_boot()
 
     def _build_shell(self) -> None:
         page = self.page
@@ -85,20 +117,62 @@ class FootballApp:
         )
         page.on_resize = self._on_resized
         page.on_resized = self._on_resized
+        self._rebuild_chrome()
         page.add(self.body)
-        self._render()
 
-    def _on_resized(self, _event: ft.ControlEvent) -> None:
-        self._render()
+    def _rebuild_chrome(self) -> None:
+        width = window_width(self.page)
+        rail = use_rail(width)
+        self._rail_mode = rail
+        self._split_mode = use_split(width)
+        if rail:
+            self._rail = self._navigation_rail()
+            self._nav_bar = None
+            self.page.navigation_bar = None
+            self.body.content = ft.Row(
+                [
+                    self._rail,
+                    ft.VerticalDivider(
+                        width=1,
+                        color=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
+                    ),
+                    self._pane,
+                ],
+                expand=True,
+                spacing=0,
+            )
+            return
+        self._rail = None
+        self._nav_bar = self._navigation_bar()
+        self.page.navigation_bar = self._nav_bar
+        self.body.content = self._pane
+
+    def _on_resized(self, _event: object | None = None) -> None:
+        debounce(self.page, "resize", 0.15, self._on_resized_apply)
+
+    def _on_resized_apply(self) -> None:
+        width = window_width(self.page)
+        rail = use_rail(width)
+        split = use_split(width)
+        if rail != self._rail_mode or split != self._split_mode:
+            self._rebuild_chrome()
+        self._render_panes()
+
+    def _sync_nav_selection(self) -> None:
+        index = self._nav_index()
+        if self._rail is not None:
+            self._rail.selected_index = index
+        if self._nav_bar is not None:
+            self._nav_bar.selected_index = index
 
     def _on_nav(self, event: ft.ControlEvent) -> None:
         index = int(event.control.selected_index)
         self.section = SECTIONS[index] if 0 <= index < len(SECTIONS) else "leagues"
         self.error = None
-        if self.section == "leagues" and not self.competitions:
+        if self.section == "leagues" and not self.competitions and not self.booting:
             self._load_leagues()
             return
-        self._render()
+        self._render_panes()
 
     def _set_nav(self, section: str) -> None:
         self.section = section
@@ -144,12 +218,12 @@ class FootballApp:
     def _split(self, master: ft.Control, detail: ft.Control, *, master_flex: int = 3) -> ft.Control:
         return ft.Row(
             [
-                ft.Container(content=master, expand=master_flex, padding=ft.padding.only(right=8)),
+                ft.Container(content=master, expand=master_flex, padding=ft.Padding.only(right=8)),
                 ft.VerticalDivider(
                     width=1,
                     color=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
                 ),
-                ft.Container(content=detail, expand=2, padding=ft.padding.only(left=8)),
+                ft.Container(content=detail, expand=2, padding=ft.Padding.only(left=8)),
             ],
             expand=True,
             spacing=0,
@@ -169,15 +243,52 @@ class FootballApp:
         }.get(self.section)
         return self.error if section_kind == kind else None
 
+    def _filtered_competitions(self) -> list[Competition]:
+        items = filter_competitions(self.competitions, self.league_query)
+        favorites = {code.upper() for code in self.settings.favorite_codes()}
+        if self.favorites_only:
+            items = [item for item in items if item.code.upper() in favorites]
+        items.sort(key=lambda item: 0 if item.code.upper() in favorites else 1)
+        return items
+
+    def _filtered_matches(self) -> list[Match]:
+        return filter_matches(
+            self.matches,
+            team_query=self.team_query,
+            upcoming_only=self.upcoming_only,
+            now=datetime.now(UTC),
+        )
+
+    def _on_league_query(self, query: str) -> None:
+        self.league_query = query
+        debounce(self.page, "league_query", 0.2, self._render_panes)
+
+    def _on_favorites_only(self, value: bool) -> None:
+        self.favorites_only = value
+        self._render_panes()
+
+    def _on_team_query(self, query: str) -> None:
+        self.team_query = query
+        debounce(self.page, "team_query", 0.2, self._render_panes)
+
+    def _on_upcoming_only(self, value: bool) -> None:
+        self.upcoming_only = value
+        self._render_panes()
+
     def _leagues_pane(self, width: int) -> ft.Control:
         return leagues_view(
-            self.competitions,
+            self._filtered_competitions(),
             loading=self.loading and self.busy == "leagues",
             error=self._error_for("leagues"),
             on_select=self._select_league,
             on_refresh=lambda: self._load_leagues(force=True),
             window_width=width,
             selected_code=self.league.code if self.league else None,
+            query=self.league_query,
+            on_query=self._on_league_query,
+            favorites_only=self.favorites_only,
+            on_favorites_only=self._on_favorites_only,
+            has_favorites=bool(self.settings.favorite_codes()),
         )
 
     def _fixtures_pane(
@@ -196,7 +307,7 @@ class FootballApp:
         name = self.league.name if self.league else "Календарь"
         return fixtures_view(
             name,
-            self.matches,
+            self._filtered_matches(),
             loading=self.loading and self.busy == "fixtures",
             error=self._error_for("fixtures"),
             on_open=self._open_match,
@@ -206,9 +317,13 @@ class FootballApp:
             league_code=self.league.code if self.league else None,
             window_width=width,
             embedded=embedded,
-            compact_grid=compact_grid,
+            compact_grid=self.settings.compact_fixtures or compact_grid,
             selected_match_id=self.selected_match_id,
             show_disclaimer=show_disclaimer,
+            team_query=self.team_query,
+            on_team_query=self._on_team_query,
+            upcoming_only=self.upcoming_only,
+            on_upcoming_only=self._on_upcoming_only,
         )
 
     def _forecast_pane(self, width: int, *, embedded: bool) -> ft.Control:
@@ -219,19 +334,20 @@ class FootballApp:
             on_back=lambda: self._goto("fixtures"),
             window_width=width,
             embedded=embedded,
+            show_ai_block=self.settings.show_ai_block,
         )
 
     def _settings_pane(self, width: int) -> ft.Control:
         return settings_view(
-            self.settings.football_data_api_key,
-            self.settings.openai_api_key,
-            self.settings.openai_model,
-            self.settings.openai_base_url,
-            status=self.status,
-            error=self._error_for("settings"),
-            saving=self.loading and self.busy == "settings",
+            SettingsForm.from_settings(
+                self.settings,
+                status=self.status,
+                error=self._error_for("settings"),
+                saving=self.loading and self.busy == "settings",
+            ),
             on_save=self._save_settings,
             on_test=self._test_connection,
+            on_clear_cache=self._clear_cache,
             window_width=width,
         )
 
@@ -270,57 +386,122 @@ class FootballApp:
             return self._forecast_pane(width, embedded=False)
         return self._settings_pane(width)
 
-    def _render(self) -> None:
+    def _render_panes(self) -> None:
         width = window_width(self.page)
-        split = use_split(width)
-        rail = use_rail(width)
-        content = ft.Container(
-            content=self._section_body(width, split),
-            expand=True,
-            padding=BODY_PADDING,
-            bgcolor=BG,
-        )
-        if rail:
-            self.page.navigation_bar = None
-            self.body.content = ft.Row(
-                [
-                    self._navigation_rail(),
-                    ft.VerticalDivider(
-                        width=1,
-                        color=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
-                    ),
-                    content,
-                ],
-                expand=True,
-                spacing=0,
+        if self.booting:
+            self._pane.content = splash_view(
+                self._splash_message,
+                fraction=self._splash_fraction,
             )
         else:
-            self.page.navigation_bar = self._navigation_bar()
-            self.body.content = content
+            self._pane.content = self._section_body(width, use_split(width))
+        self._sync_nav_selection()
         self.page.update()
+
+    def _render(self) -> None:
+        width = window_width(self.page)
+        rail = use_rail(width)
+        split = use_split(width)
+        if rail != self._rail_mode or split != self._split_mode:
+            self._rebuild_chrome()
+        self._render_panes()
 
     def _goto(self, section: str) -> None:
         self.error = None
         self._set_nav(section)
-        self._render()
+        self._render_panes()
+
+    def _set_splash(self, message: str, fraction: float | None = None) -> None:
+        self._splash_message = message
+        self._splash_fraction = fraction
+        if self.booting:
+            self._render_panes()
+
+    def _post_splash(self, message: str, fraction: float | None = None) -> None:
+        def apply() -> None:
+            self._set_splash(message, fraction)
+
+        runner = getattr(self.page, "run_task", None)
+        if callable(runner):
+            async def tick() -> None:
+                apply()
+
+            runner(tick)
+            return
+        apply()
+
+    def _start_boot(self) -> None:
+        self.booting = True
+        self._set_splash("Читаем кэш…")
+        self.competitions = self.service.cached_competitions()
+        self._set_splash("Обновляем список лиг…")
+        run_background(
+            self.page,
+            self.service.bootstrap,
+            self._on_bootstrap,
+            self._on_fail,
+            message=None,
+            cancel_previous=False,
+        )
+
+    def _finish_boot(self) -> None:
+        self.booting = False
+        self.loading = False
+        self.busy = None
+        self._render_panes()
+
+    def _on_bootstrap(self, items: list[Competition]) -> None:
+        self.competitions = list(items)
+        if self.settings.prefetch_wait_on_start and items:
+            self._prefetch_all(items)
+            return
+        self._finish_boot()
+
+    def _prefetch_all(self, items: list[Competition]) -> None:
+        total = len(items)
+        self._set_splash(f"Лига 1/{total}: {items[0].code}", 0.0)
+
+        def work() -> None:
+            for index, competition in enumerate(items, start=1):
+                self._post_splash(
+                    f"Лига {index}/{total}: {competition.code}",
+                    (index - 1) / total if total else None,
+                )
+                self.service.prefetch_competition(competition.code)
+
+        run_background(
+            self.page,
+            work,
+            lambda _result: self._finish_boot(),
+            self._on_fail,
+            message=None,
+            cancel_previous=False,
+        )
 
     def _load_leagues(self, force: bool = False) -> None:
         self.loading = True
         self.busy = "leagues"
         self.error = None
         self._set_nav("leagues")
-        self._render()
+        self._render_panes()
 
         def work() -> list[Competition]:
             return self.service.list_competitions(force=force)
 
-        run_background(self.page, work, self._on_leagues, self._on_fail)
+        run_background(
+            self.page,
+            work,
+            self._on_leagues,
+            self._on_fail,
+            message="Обновляем список лиг…",
+            cancel_previous=True,
+        )
 
     def _on_leagues(self, items: list[Competition]) -> None:
         self.competitions = items
         self.loading = False
         self.busy = None
-        self._render()
+        self._render_panes()
 
     def _select_league(self, competition: Competition) -> None:
         self.league = competition
@@ -340,19 +521,26 @@ class FootballApp:
         self.error = None
         if not stay_on_section:
             self._set_nav("fixtures")
-        self._render()
+        self._render_panes()
         code = self.league.code
 
         def work() -> list[Match]:
             return self.service.upcoming(code, force=force)
 
-        run_background(self.page, work, self._on_fixtures, self._on_fail)
+        run_background(
+            self.page,
+            work,
+            self._on_fixtures,
+            self._on_fail,
+            message="Загрузка календаря…",
+            cancel_previous=True,
+        )
 
     def _on_fixtures(self, matches: list[Match]) -> None:
         self.matches = matches
         self.loading = False
         self.busy = None
-        self._render()
+        self._render_panes()
 
     def _open_match(self, match: Match) -> None:
         self.loading = True
@@ -365,55 +553,144 @@ class FootballApp:
             self._set_nav("fixtures")
         else:
             self._set_nav("match")
-        self._render()
 
         def work() -> MatchForecast:
-            return self.service.forecast(match)
+            return self.service.forecast(match, explain=False)
 
-        run_background(self.page, work, self._on_forecast, self._on_fail)
+        run_background(
+            self.page,
+            work,
+            self._on_forecast,
+            self._on_fail,
+            message="Считаем прогноз…",
+            cancel_previous=True,
+        )
+        self._render_panes()
 
     def _on_forecast(self, forecast: MatchForecast) -> None:
         self.forecast = forecast
         self.loading = False
         self.busy = None
-        self._render()
+        self._render_panes()
+        if not (self.settings.show_ai_block and self.settings.has_openai_key):
+            return
+        current = self.forecast
+
+        def explain_work() -> MatchForecast:
+            return self.service.explain_forecast(current)
+
+        run_background(
+            self.page,
+            explain_work,
+            self._on_explain,
+            self._on_explain_fail,
+            message=None,
+            cancel_previous=False,
+        )
+
+    def _on_explain(self, forecast: MatchForecast) -> None:
+        self.forecast = forecast
+        self._render_panes()
+
+    def _on_explain_fail(self, _message: str) -> None:
+        self._render_panes()
 
     def _on_fail(self, message: str) -> None:
         self.loading = False
+        self.busy = None
+        self.booting = False
         self.error = message
-        self._render()
+        self._render_panes()
 
-    def _save_settings(self, football_key: str, openai_key: str, model: str, base_url: str) -> None:
+    def _save_settings(self, payload: dict[str, str | bool]) -> None:
         self.loading = True
         self.busy = "settings"
         self.error = None
         self.status = None
-        self._render()
+        self._render_panes()
 
         def work() -> Settings:
-            write_env_value("FOOTBALL_DATA_API_KEY", football_key.strip())
-            write_env_value("OPENAI_API_KEY", openai_key.strip())
-            write_env_value("OPENAI_MODEL", model.strip() or "gpt-4o-mini")
-            write_env_value("OPENAI_BASE_URL", base_url.strip() or "https://api.openai.com/v1")
-            settings = load_settings()
-            return settings
+            write_env_value(
+                "FOOTBALL_DATA_API_KEY",
+                _env_text(payload.get("football_data_api_key")),
+            )
+            write_env_value("OPENAI_API_KEY", _env_text(payload.get("openai_api_key")))
+            write_env_value(
+                "OPENAI_MODEL",
+                _env_text(payload.get("openai_model"), "gpt-4o-mini"),
+            )
+            write_env_value(
+                "OPENAI_BASE_URL",
+                _env_text(payload.get("openai_base_url"), "https://api.openai.com/v1"),
+            )
+            write_env_value("FAVORITE_LEAGUES", _env_text(payload.get("favorite_leagues")))
+            write_env_value(
+                "PREFETCH_WAIT_ON_START",
+                _env_flag(payload.get("prefetch_wait_on_start", False)),
+            )
+            write_env_value(
+                "SHOW_AI_BLOCK",
+                _env_flag(payload.get("show_ai_block", True)),
+            )
+            write_env_value(
+                "COMPACT_FIXTURES",
+                _env_flag(payload.get("compact_fixtures", False)),
+            )
+            return load_settings()
 
         def ok(settings: Settings) -> None:
             self.settings = settings
             self.service = build_service(settings)
             self.loading = False
             self.busy = None
-            self.status = "Ключи сохранены в .env."
-            self._render()
+            self.status = "Настройки сохранены."
+            self._render_panes()
 
-        run_background(self.page, work, ok, self._on_fail)
+        run_background(
+            self.page,
+            work,
+            ok,
+            self._on_fail,
+            message="Сохраняем настройки…",
+            cancel_previous=True,
+        )
+
+    def _clear_cache(self) -> None:
+        self.loading = True
+        self.busy = "settings"
+        self.error = None
+        self.status = None
+        self._render_panes()
+
+        def work() -> list[Competition]:
+            self.service.clear_cache()
+            return self.service.cached_competitions()
+
+        def ok(items: list[Competition]) -> None:
+            self.competitions = items
+            self.matches = []
+            self.forecast = None
+            self.selected_match_id = None
+            self.loading = False
+            self.busy = None
+            self.status = "Кэш очищен."
+            self._render_panes()
+
+        run_background(
+            self.page,
+            work,
+            ok,
+            self._on_fail,
+            message="Очищаем кэш…",
+            cancel_previous=True,
+        )
 
     def _test_connection(self) -> None:
         self.loading = True
         self.busy = "settings"
         self.error = None
         self.status = None
-        self._render()
+        self._render_panes()
 
         def work() -> str:
             items = self.service.ping()
@@ -423,9 +700,16 @@ class FootballApp:
             self.loading = False
             self.busy = None
             self.status = message
-            self._render()
+            self._render_panes()
 
-        run_background(self.page, work, ok, self._on_fail)
+        run_background(
+            self.page,
+            work,
+            ok,
+            self._on_fail,
+            message="Проверяем соединение…",
+            cancel_previous=True,
+        )
 
 
 def start_ui(
