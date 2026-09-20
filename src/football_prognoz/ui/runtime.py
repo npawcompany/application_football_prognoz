@@ -6,6 +6,8 @@ from typing import Any
 
 import flet as ft
 
+from football_prognoz.ui.theme import AWAY, CARD, DRAW, FG, MUTED, glass_border
+
 
 def run_background(
     page: ft.Page,
@@ -51,26 +53,56 @@ def run_background(
 
 def error_banner(text: str) -> ft.Control:
     return ft.Container(
-        content=ft.Text(text, color=ft.Colors.WHITE),
-        bgcolor=ft.Colors.RED_700,
-        padding=12,
-        border_radius=8,
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.ERROR_OUTLINE, color=FG, size=16),
+                ft.Text(text, color=FG, expand=True, size=13),
+            ],
+            spacing=8,
+        ),
+        bgcolor=AWAY,
+        padding=ft.padding.symmetric(horizontal=10, vertical=8),
+        border_radius=10,
+        semantics_label=text,
     )
 
 
-def info_banner(text: str) -> ft.Control:
+def info_banner(text: str, action_hint: str | None = None) -> ft.Control:
+    lines = [ft.Text(text, color=FG, expand=True, size=13)]
+    if action_hint:
+        lines.append(ft.Text(action_hint, size=11, color=MUTED))
     return ft.Container(
-        content=ft.Text(text),
-        bgcolor=ft.Colors.BLUE_GREY_800,
-        padding=12,
-        border_radius=8,
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.INFO_OUTLINE, color=DRAW, size=16),
+                ft.Column(lines, spacing=2, expand=True),
+            ],
+            spacing=8,
+        ),
+        bgcolor=CARD,
+        border=glass_border(),
+        padding=ft.padding.symmetric(horizontal=10, vertical=8),
+        border_radius=10,
     )
 
 
 def disclaimer() -> ft.Control:
-    return ft.Text(
-        "Прогноз статистический и не является советом ставить деньги.",
-        size=12,
-        italic=True,
-        color=ft.Colors.GREY_400,
+    return ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.HELP_OUTLINE, size=14, color=MUTED),
+                ft.Text(
+                    "Прогноз статистический. Это не совет ставить деньги.",
+                    size=11,
+                    color=MUTED,
+                    expand=True,
+                ),
+            ],
+            spacing=6,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=ft.Colors.with_opacity(0.35, CARD),
+        border=glass_border(),
+        padding=ft.padding.symmetric(horizontal=10, vertical=6),
+        border_radius=16,
     )

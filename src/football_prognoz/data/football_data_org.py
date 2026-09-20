@@ -9,7 +9,7 @@ import httpx
 
 from football_prognoz.data import FREE_CODES
 from football_prognoz.domain.match import Match, MatchStatus, Score
-from football_prognoz.domain.team import Competition, StandingRow
+from football_prognoz.domain.team import Competition, StandingRow, Team
 
 API_BASE = "https://api.football-data.org/v4"
 
@@ -166,6 +166,27 @@ class FootballDataOrgClient:
         ]
         matches.sort(key=lambda m: m.utc_date)
         return matches
+
+    def list_teams(self, competition_code: str) -> list[Team]:
+        payload = self._get(f"/competitions/{competition_code}/teams")
+        teams: list[Team] = []
+        for raw in payload.get("teams") or []:
+            team_id = int(raw.get("id") or 0)
+            if team_id <= 0:
+                continue
+            short_name = raw.get("shortName")
+            tla = raw.get("tla")
+            teams.append(
+                Team(
+                    id=team_id,
+                    name=str(raw.get("name") or "Unknown"),
+                    short_name=str(short_name) if short_name else None,
+                    tla=str(tla) if tla else None,
+                    crest=raw.get("crest"),
+                )
+            )
+        teams.sort(key=lambda t: t.name)
+        return teams
 
     def list_standings(self, competition_code: str) -> list[StandingRow]:
         payload = self._get(f"/competitions/{competition_code}/standings")

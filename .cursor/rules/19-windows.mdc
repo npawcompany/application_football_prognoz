@@ -1,0 +1,11 @@
+---
+description: Windows PowerShell, OneDrive, Cyrillic Desktop paths
+alwaysApply: false
+---
+
+# Windows
+
+- Prefer `Join-Path` (two args on older PowerShell). Desktop: `[Environment]::GetFolderPath('Desktop')`.
+- Pack on OneDrive + Cyrillic path: if copy is flaky, install from a mirror under `%LOCALAPPDATA%\ai-agent-skills-pack`.
+- `python` vs `python3` — both may be 3.10.x. Spec Kit still needs 3.11+ via `uv`.
+- ExecutionPolicy: `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`

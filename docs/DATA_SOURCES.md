@@ -16,12 +16,25 @@
 - `GET /v4/competitions` — список лиг.
 - `GET /v4/competitions/{code}/matches?season=YYYY&status=&dateFrom=&dateTo=`
 - `GET /v4/competitions/{code}/standings`
+- `GET /v4/competitions/{code}/teams` — клубы/сборные сезона (по умолчанию текущий; `?season=YYYY` для прошлых). `{code}` — код или id соревнования.
 
 ### Поля матча (v4), которые маппим в domain
 
 `id`, `utcDate`, `status`, `matchday`, `homeTeam.id`, `homeTeam.name`, `awayTeam.id`, `awayTeam.name`, `score.fullTime.home`, `score.fullTime.away`, `score.winner`.
 
+### Поля команды (v4 `/teams`), которые маппим в domain.Team
+
+`id`, `name`, `shortName`, `tla`, `crest`.
+
 Не выдумывать поля вроде `xG` или `injuries` — в free v4 их нет.
+
+### CDN гербов (официальный, тот же хост, что в `crest` / `emblem`)
+
+- База: `https://crests.football-data.org/`
+- Клуб/сборная: `https://crests.football-data.org/{id}.png`
+- Соревнование: сначала `https://crests.football-data.org/{code}.png` (например `PL.png`); если CDN 404 — тот же хост `{competitionId}.png` (как в поле `emblem` v4).
+- Живой HTTP только из `scripts/sync_crests.py` (не из UI). Лимит API 10 req/min. Если оба URL 404 (типично BSA) → `manifest.missing`, без Wikipedia и без букмекеров.
+- В старых примерах доки ещё встречается `crestURI`; в JSON v4 поле называется `crest` (как уже маппим в матчах).
 
 ### Коды free-тира
 
@@ -37,9 +50,9 @@
 - Дата: 2026-09-20
 - URL: https://www.football-data.org/documentation/api
 - Версия: v4
-- В код: `X-Auth-Token`, matches + standings, TTL-кэш, 10 req/min
+- В код: `X-Auth-Token`, matches + standings + teams, TTL-кэш, 10 req/min, CDN crests
 - Лимиты: 10/мин на free
-- В доке нет: xG, составы на free без add-on
+- В доке нет: xG, составы на free без add-on; часть эмблем (BSA) может отдавать CDN 404 и на `{code}.png`, и на `{id}.png`
 
 ## football-data.co.uk (CSV для обучения)
 

@@ -52,6 +52,41 @@ def test_list_standings(standings_payload: dict) -> None:
     assert rows[0].position == 1
 
 
+def test_list_teams_maps_domain_fields(teams_payload: dict) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["X-Auth-Token"] == "test-key"
+        assert request.url.path.endswith("/competitions/PL/teams")
+        return httpx.Response(200, json=teams_payload)
+
+    teams = _client(handler).list_teams("PL")
+    assert [team.id for team in teams] == [57, 65]
+    arsenal = teams[0]
+    assert arsenal.name == "Arsenal FC"
+    assert arsenal.short_name == "Arsenal"
+    assert arsenal.tla == "ARS"
+    assert arsenal.crest == "https://crests.football-data.org/57.png"
+    city = teams[1]
+    assert city.short_name == "Man City"
+    assert city.tla == "MCI"
+
+
+def test_list_teams_skips_invalid_ids() -> None:
+    payload = {
+        "teams": [
+            {"id": 0, "name": "Broken"},
+            {"id": 18, "name": "Borussia Mönchengladbach", "shortName": "M'gladbach", "tla": "BMG"},
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    teams = _client(handler).list_teams("BL1")
+    assert len(teams) == 1
+    assert teams[0].id == 18
+    assert teams[0].short_name == "M'gladbach"
+
+
 @pytest.mark.parametrize("status,message", [(403, "403"), (429, "429")])
 def test_api_errors(status: int, message: str) -> None:
     def handler(request: httpx.Request) -> httpx.Response:

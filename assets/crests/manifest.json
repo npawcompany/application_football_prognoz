@@ -1,0 +1,32 @@
+{
+  "source": "https://crests.football-data.org/",
+  "leagues": {
+    "PL": "leagues/PL.png",
+    "PD": "leagues/PD.png",
+    "SA": "leagues/SA.png",
+    "BL1": "leagues/BL1.png",
+    "FL1": "leagues/FL1.png",
+    "DED": "leagues/DED.png",
+    "PPL": "leagues/PPL.png",
+    "ELC": "leagues/ELC.png",
+    "CL": "leagues/CL.png",
+    "WC": "leagues/WC.png",
+    "EC": "leagues/EC.png"
+  },
+  "teams": {
+    "57": "teams/57-arsenal.png",
+    "58": "teams/58-astonvilla.png",
+    "61": "teams/61-chelsea.png",
+    "64": "teams/64-liverpool.png",
+    "65": "teams/65-mancity.png",
+    "66": "teams/66-manutd.png",
+    "67": "teams/67-newcastle.png",
+    "73": "teams/73-tottenham.png"
+  },
+  "missing": {
+    "leagues": [
+      "BSA"
+    ],
+    "teams": []
+  }
+}

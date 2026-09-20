@@ -1,0 +1,12 @@
+---
+description: Session start, handoff, and when to reset the Agent chat
+alwaysApply: true
+---
+
+# Session and handoff
+
+- Start: charter + router. Do not open extra skill bodies “just in case”.
+- After install/update of this pack: tell the user to open a **new Agent chat**.
+- Looping, contradictions, or repeated failed tools: stop features, write `handoff.md` (progress, decisions, next step), recommend a new chat.
+- End of large work: journal via `agent-action-journal` only if the work was multi-step; `log-session` if the user wants a distillate.
+- Do not keep a polluted context alive by adding more tools.

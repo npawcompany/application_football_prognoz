@@ -28,3 +28,28 @@ def standings_payload() -> dict:
 @pytest.fixture
 def sample_csv() -> Path:
     return SAMPLES / "sample_results.csv"
+
+
+@pytest.fixture
+def teams_payload() -> dict:
+    return {
+        "count": 2,
+        "filters": {},
+        "competition": {"id": 2021, "name": "Premier League", "code": "PL"},
+        "teams": [
+            {
+                "id": 57,
+                "name": "Arsenal FC",
+                "shortName": "Arsenal",
+                "tla": "ARS",
+                "crest": "https://crests.football-data.org/57.png",
+            },
+            {
+                "id": 65,
+                "name": "Manchester City FC",
+                "shortName": "Man City",
+                "tla": "MCI",
+                "crest": "https://crests.football-data.org/65.png",
+            },
+        ],
+    }

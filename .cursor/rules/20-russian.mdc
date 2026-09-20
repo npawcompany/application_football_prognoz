@@ -1,0 +1,8 @@
+---
+description: Russian text, editorial, literature — ru-text stack
+alwaysApply: false
+---
+
+# Russian text
+
+Primary: `russian-literature-kb` → `ru-text`. Publisher formatting: `russian-editorial-review`. Do not use English UX-copy skills as the primary for Russian prose.
