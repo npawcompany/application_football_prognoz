@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -14,40 +15,38 @@ def run_background(
 ) -> None:
     """Run blocking I/O off the UI thread, then apply results on the UI thread."""
 
+    async def task() -> None:
+        try:
+            result = await asyncio.to_thread(work)
+        except Exception as exc:  # noqa: BLE001 — surface any I/O error in the UI
+            on_err(str(exc))
+            page.update()
+            return
+        on_ok(result)
+        page.update()
+
+    runner = getattr(page, "run_task", None)
+    if callable(runner):
+        runner(task)
+        return
+
     def target() -> None:
         try:
             result = work()
-        except Exception as exc:  # noqa: BLE001 — surface any I/O error in the UI
-            message = str(exc)
-
-            def fail() -> None:
-                on_err(message)
-                page.update()
-
-            _invoke(page, fail)
-            return
-
-        def ok() -> None:
-            on_ok(result)
+        except Exception as exc:  # noqa: BLE001
+            on_err(str(exc))
             page.update()
+            return
+        on_ok(result)
+        page.update()
 
-        _invoke(page, ok)
-
-    runner = getattr(page, "run_thread", None)
-    if callable(runner):
-        runner(target)
+    thread_runner = getattr(page, "run_thread", None)
+    if callable(thread_runner):
+        thread_runner(target)
     else:
         import threading
 
         threading.Thread(target=target, daemon=True).start()
-
-
-def _invoke(page: ft.Page, callback: Callable[[], None]) -> None:
-    caller = getattr(page, "call_from_thread", None)
-    if callable(caller):
-        caller(callback)
-    else:
-        callback()
 
 
 def error_banner(text: str) -> ft.Control:

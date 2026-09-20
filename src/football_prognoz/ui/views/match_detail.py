@@ -56,7 +56,18 @@ def match_detail_view(
     )
     if forecast.explanation:
         body.append(ft.Text(forecast.explanation.text))
-        body.append(ft.Text(f"Модель: {forecast.explanation.model}", size=12, color=ft.Colors.GREY_400))
+        body.append(
+            ft.Text(
+                f"Модель: {forecast.explanation.model}",
+                size=12,
+                color=ft.Colors.GREY_400,
+            )
+        )
     else:
-        body.append(info_banner("AI не настроен. Добавьте OPENAI_API_KEY в Настройках — числа уже посчитаны локально."))
+        body.append(
+            info_banner(
+                "AI не настроен. Добавьте OPENAI_API_KEY в Настройках — "
+                "числа уже посчитаны локально."
+            )
+        )
     return ft.Column(body, spacing=10, expand=True, scroll=ft.ScrollMode.AUTO)

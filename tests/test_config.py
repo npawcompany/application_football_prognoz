@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from football_prognoz.config import write_env_value
@@ -19,5 +19,5 @@ def test_write_env_value_updates_without_dropping_keys(tmp_path: Path) -> None:
 
 
 def test_current_season_year_flips_in_july() -> None:
-    assert current_season_year(datetime(2026, 6, 1, tzinfo=timezone.utc)) == 2025
-    assert current_season_year(datetime(2026, 7, 1, tzinfo=timezone.utc)) == 2026
+    assert current_season_year(datetime(2026, 6, 1, tzinfo=UTC)) == 2025
+    assert current_season_year(datetime(2026, 7, 1, tzinfo=UTC)) == 2026

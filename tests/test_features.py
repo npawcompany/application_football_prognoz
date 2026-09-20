@@ -10,7 +10,9 @@ from football_prognoz.domain.team import StandingRow
 from football_prognoz.services.features import FeatureService
 
 
-def _store_with_history(tmp_path: Path, matches_payload: dict, standings_payload: dict) -> SQLiteStore:
+def _store_with_history(
+    tmp_path: Path, matches_payload: dict, standings_payload: dict
+) -> SQLiteStore:
     store = SQLiteStore(tmp_path / "test.db")
     matches = [match_from_api(raw, "PL") for raw in matches_payload["matches"]]
     store.upsert_matches(matches)
@@ -36,7 +38,9 @@ def _store_with_history(tmp_path: Path, matches_payload: dict, standings_payload
     return store
 
 
-def test_features_from_cached_history(tmp_path: Path, matches_payload: dict, standings_payload: dict) -> None:
+def test_features_from_cached_history(
+    tmp_path: Path, matches_payload: dict, standings_payload: dict
+) -> None:
     store = _store_with_history(tmp_path, matches_payload, standings_payload)
     upcoming = store.get_match(201)
     assert upcoming is not None

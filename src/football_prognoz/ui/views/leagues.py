@@ -20,7 +20,11 @@ def leagues_view(
         ft.Row(
             [
                 ft.Text("Лиги", size=24, weight=ft.FontWeight.BOLD),
-                ft.IconButton(icon=ft.Icons.REFRESH, tooltip="Обновить", on_click=lambda _e: on_refresh()),
+                ft.IconButton(
+                    icon=ft.Icons.REFRESH,
+                    tooltip="Обновить",
+                    on_click=lambda _e: on_refresh(),
+                ),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         ),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from football_prognoz.domain.match import Match, MatchStatus, Score
@@ -13,12 +13,12 @@ TTL_FINISHED_HOURS = 24
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _parse_dt(value: str | None) -> datetime:
     if not value:
-        return datetime.fromtimestamp(0, tz=timezone.utc)
+        return datetime.fromtimestamp(0, tz=UTC)
     return datetime.fromisoformat(value)
 
 

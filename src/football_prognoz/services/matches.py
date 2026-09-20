@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from football_prognoz.ai.explainer import Explainer
 from football_prognoz.data import FREE_COMPETITIONS
 from football_prognoz.data.football_data_org import FootballDataError, FootballDataOrgClient
 from football_prognoz.data.store import (
-    SQLiteStore,
     TTL_FINISHED_HOURS,
     TTL_SCHEDULED_HOURS,
+    SQLiteStore,
 )
 from football_prognoz.domain.match import Match
 from football_prognoz.domain.prediction import MatchForecast
@@ -18,7 +18,7 @@ from football_prognoz.services.features import FeatureService
 
 
 def current_season_year(now: datetime | None = None) -> int:
-    moment = now or datetime.now(timezone.utc)
+    moment = now or datetime.now(UTC)
     return moment.year if moment.month >= 7 else moment.year - 1
 
 
@@ -81,7 +81,7 @@ class MatchService:
         return self._store.list_matches(code)
 
     def upcoming(self, code: str, *, force: bool = False) -> list[Match]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         matches = self.refresh_competition(code, force=force)
         upcoming = [m for m in matches if m.status.is_upcoming() and m.utc_date >= now]
         if upcoming:

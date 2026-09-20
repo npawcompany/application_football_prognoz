@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from football_prognoz.ai.explainer import Explainer
 from football_prognoz.domain.match import Match, MatchStatus, Score
@@ -23,7 +23,7 @@ def _match() -> Match:
     return Match(
         id=201,
         competition_code="PL",
-        utc_date=datetime(2026, 9, 26, 14, 0, tzinfo=timezone.utc),
+        utc_date=datetime(2026, 9, 26, 14, 0, tzinfo=UTC),
         status=MatchStatus.SCHEDULED,
         matchday=6,
         home_id=57,
