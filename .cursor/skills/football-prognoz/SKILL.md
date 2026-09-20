@@ -32,6 +32,7 @@ Router: `skills-router`. Do not co-load overlapping orchestration skills.
 - Code/commits English. UI strings Russian.
 - Never commit `.env`, cache, CSVs, or keys.
 - Tests use `data/samples/` only — no live API.
+- Diploma / naive 5-match heuristic: `docs/VKR.md`, `docs/HEURISTIC_FIVE_MATCH.md`. Do not replace Elo+Poisson with ceil-home/floor-away scoring.
 
 ## Official docs first
 
