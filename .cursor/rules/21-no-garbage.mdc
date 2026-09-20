@@ -1,0 +1,15 @@
+---
+description: Pack hygiene — no junk skill folders, no duplicate names, generated manifest
+alwaysApply: true
+---
+
+# No garbage
+
+When changing this pack:
+
+- A skill directory **must** contain `SKILL.md` whose `name:` equals the folder name.
+- Do not add a second folder with the same skill name (install would overwrite). Point README instead.
+- Do not put lesson dumps, CSV databases, or upstream git clones in `NN-*` unless they are that skill’s `references/`.
+- `custom/` is a **mirror** of selected SKILL.md files. Install reads `NN-*` only.
+- After adding/removing skills: `python scripts/generate_manifest.py` and `.\scripts\doctor.ps1`.
+- UI/UX Pro Max official files live in `~/.cursor/skills/ui-ux-pro-max` via `uipro`. Never name a pack folder `ui-ux-pro-max`.

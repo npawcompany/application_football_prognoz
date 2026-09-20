@@ -1,0 +1,20 @@
+---
+description: Which agents_ai skills to load for Football Prognoz
+alwaysApply: true
+---
+
+# Skills for this project
+
+Pack: `agents_ai` profile **python** (v1.9.0) + project copies in `.cursor/skills/`.
+
+Always start from **`football-prognoz`** + **`skills-router`**. Load at most one extra skill body.
+
+- Python / packaging / venv: `python-dev`, `python-venv-manager`
+- Tests: `pytest-best-practices`, `verification-before-completion`
+- Model: `scikit-learn` (Elo/Poisson stay local; LLM does not pick 1X2)
+- SQLite: `sql-databases` (embedded, parameterized). Not Postgres/SQLAlchemy unless the product changes.
+- Flet and football-data.org: `source-driven-development` + `docs/DOC_STUDY.md`
+- Multi-module work: `virtual-company-swarm` → `subagent-orchestrator`
+- Journal: `agent-action-journal` → `.agent-journal/`
+
+Do not add LangChain/LlamaIndex. Do not load React/Vue/n8n/Figma skills unless the user asks.

@@ -1,0 +1,24 @@
+---
+description: Git safety, pack releases, annotated version tags
+alwaysApply: true
+---
+
+# Git safety
+
+- Commit only when the user asks. Follow `git` / `git-workflow-and-versioning`.
+- Never update git config. Never `--no-verify` / skip hooks unless the user asked.
+- Never force-push main/master. Never hard reset unless explicitly requested.
+- No `git commit --amend` except the documented safe cases in the user git rules.
+- Do not commit `.env`, credentials, or pack state from another machine.
+
+## Pack releases (this repo: ai-agent-skills-pack)
+
+When the user asks to ship pack changes (commit / push / «залей» / «запуш»):
+
+1. Bump `VERSION` (semver: patch for fixes, minor for behavior, major for breaking).
+2. Run `python scripts/generate_manifest.py`.
+3. Commit the release.
+4. Create an **annotated** tag matching VERSION: `git tag -a vX.Y.Z -m "vX.Y.Z — short summary"`.
+5. Push the branch **and** the tag: `git push origin HEAD` then `git push origin vX.Y.Z`.
+
+Never retag a published `vX.Y.Z`. Never skip the tag for a shipped pack change. Do **not** tag unrelated user projects unless they asked.

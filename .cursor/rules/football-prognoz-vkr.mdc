@@ -1,0 +1,16 @@
+---
+description: VKR (diploma) structure and naive 5-match heuristic vs Elo+Poisson
+globs: docs/**/*.md
+alwaysApply: false
+---
+
+# Diploma and naive forecast heuristic
+
+When writing thesis text, chapter plans, or comparing forecast methods, follow [docs/VKR.md](docs/VKR.md) and [docs/HEURISTIC_FIVE_MATCH.md](docs/HEURISTIC_FIVE_MATCH.md).
+
+- Title: desktop statistical 1X2 app, not a betting shop.
+- LLM never picks the winner; it only explains computed probabilities.
+- Chapter 3.3 must include historical quality (Brier / log-loss / 1X2 matrix), not only pytest.
+- SQLite is a TTL cache, not an enterprise database.
+- The «last 5 matches, mean goals, ceil home / floor away» rule is a naive baseline only. Do not replace `Predictor` (Elo + Poisson blend) with it.
+- UI disclaimer stays: statistical forecast, not betting advice.
