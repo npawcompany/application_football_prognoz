@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# App cache and downloaded datasets
+data/cache/*
+!data/cache/.gitkeep
+data/csv/*
+!data/csv/.gitkeep
+*.db
+*.db-journal

@@ -1,0 +1,45 @@
+{
+  "filters": {},
+  "competition": {"id": 2021, "name": "Premier League", "code": "PL"},
+  "standings": [
+    {
+      "stage": "REGULAR_SEASON",
+      "type": "TOTAL",
+      "table": [
+        {
+          "position": 1,
+          "team": {"id": 65, "name": "Manchester City FC"},
+          "playedGames": 5,
+          "won": 4,
+          "draw": 1,
+          "lost": 0,
+          "points": 13,
+          "goalsFor": 12,
+          "goalsAgainst": 3
+        },
+        {
+          "position": 2,
+          "team": {"id": 57, "name": "Arsenal FC"},
+          "playedGames": 5,
+          "won": 3,
+          "draw": 1,
+          "lost": 1,
+          "points": 10,
+          "goalsFor": 9,
+          "goalsAgainst": 4
+        },
+        {
+          "position": 8,
+          "team": {"id": 61, "name": "Chelsea FC"},
+          "playedGames": 5,
+          "won": 2,
+          "draw": 1,
+          "lost": 2,
+          "points": 7,
+          "goalsFor": 6,
+          "goalsAgainst": 7
+        }
+      ]
+    }
+  ]
+}
