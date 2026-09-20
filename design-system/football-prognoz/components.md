@@ -8,7 +8,8 @@ Assembly map for Flet. Layer names English; UI strings Russian.
 | Nav | `NavigationBar` | Лиги / Календарь / Прогноз / Настройки · Phosphor-equivalent Material icons |
 | LeagueCard | `ui/components/league_card.py` | Official emblem 48px, code badge, «Открыть календарь» |
 | MatchCard | `ui/components/match_card.py` | Home/away crests 28px, UTC, status, «Прогноз» |
-| ProbabilityBar | `ui/components/probability_bar.py` | Stacked 1 `#22C55E` / X `#F59E0B` / 2 `#EF4444` + text labels |
+| ProbabilityBar | `ui/components/probability_bar.py` | Three 1/X/2 tiles + thin mix bar; favorite outlined |
+| Scoreboard | `preliminary_score_card` | Large `H:A`, green chip, expected-goals meters |
 | Crest | `ui/components/crest.py` | API URL first, then `assets/crests/` |
 | Disclaimer | `runtime.disclaimer` | Always visible on Календарь and Прогноз |
 | Banner | `error_banner` / `info_banner` | `role` via semantics; empty states include next action |

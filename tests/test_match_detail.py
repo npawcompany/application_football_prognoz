@@ -62,6 +62,10 @@ def test_match_detail_shows_preliminary_score() -> None:
     )
     view = match_detail_view(forecast, loading=False, error=None, on_back=lambda: None)
     blob = " ".join(_texts(view))
+    assert "Исход матча" in blob
+    assert "Фаворит" in blob
     assert "Предварительный счёт" in blob
     assert "1:1" in blob
+    assert "Ожидаемые голы" in blob
     assert "1.50 : 1.50" in blob
+    assert "Контекст матча" in blob

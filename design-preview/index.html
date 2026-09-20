@@ -219,6 +219,31 @@
     .stage[data-size="800"] .facts { grid-template-columns: 1fr; }
     .fact { background: var(--card); border: 1px solid var(--glass); border-radius: 12px; padding: 16px; }
     .fact small { color: var(--muted); display: block; margin-bottom: 8px; }
+    .outcomes { display: flex; gap: 8px; margin: 10px 0; }
+    .outcome {
+      flex: 1; background: var(--surface); border: 1px solid var(--glass);
+      border-radius: 12px; padding: 12px; text-align: center;
+    }
+    .outcome.is-fav { border-color: var(--accent); }
+    .outcome .pct { font-family: "Fira Code", monospace; font-size: 28px; font-weight: 700; margin: 4px 0; }
+    .outcome .hint { font-size: 11px; color: var(--muted); min-height: 16px; }
+    .outcome.is-fav .hint { color: var(--accent); font-weight: 600; }
+    .mix { display: flex; gap: 4px; height: 10px; margin-top: 4px; }
+    .mix i { display: block; border-radius: 8px; height: 10px; }
+    .scoreboard { display: flex; gap: 20px; align-items: flex-start; min-height: auto; }
+    .scoreboard .digits { font-family: "Fira Code", monospace; font-size: 40px; font-weight: 700; margin: 4px 0 8px; }
+    .chip { display: inline-block; background: var(--accent); color: #0f172a; border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
+    .meters { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+    .meter-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+    .meter-row b { color: var(--fg); font-family: "Fira Code", monospace; font-weight: 600; }
+    .meter { height: 8px; border-radius: 6px; background: var(--surface); overflow: hidden; display: flex; }
+    .meter span { display: block; height: 8px; border-radius: 6px; }
+    .pills { display: flex; gap: 4px; }
+    .pill { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #0f172a; }
+    .pill.w { background: var(--accent); }
+    .pill.d { background: var(--draw); }
+    .pill.l { background: var(--away); }
+    .stage[data-size="800"] .scoreboard { flex-direction: column; }
     .form {
       display: grid;
       grid-template-columns: 1fr 360px;
@@ -342,28 +367,48 @@
           </h2>
           <p class="sub">21.09.2026 16:30 UTC</p>
           <div class="disclaimer">Прогноз статистический. Это не совет ставить деньги.</div>
-          <div class="card">
-            <small style="color:var(--muted)">Вероятность исхода (1 / X / 2)</small>
-            <div class="bar">
-              <span style="flex:52;background:var(--accent)">1 52%</span>
-              <span style="flex:24;background:var(--draw)">X 24%</span>
-              <span style="flex:24;background:var(--away)">2 24%</span>
+          <div class="card" style="min-height:auto">
+            <small style="color:var(--muted)">Исход матча</small>
+            <div class="outcomes">
+              <div class="outcome is-fav"><small>1</small><div class="pct">52%</div><div>Хозяева</div><div class="hint">Фаворит</div></div>
+              <div class="outcome"><small>X</small><div class="pct">24%</div><div>Ничья</div><div class="hint">&nbsp;</div></div>
+              <div class="outcome"><small>2</small><div class="pct">24%</div><div>Гости</div><div class="hint">&nbsp;</div></div>
             </div>
-            <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:12px">
-              <span>1 · Победа хозяев · 52%</span><span>X · Ничья · 24%</span><span>2 · Победа гостей · 24%</span>
+            <div class="mix">
+              <i style="flex:52;background:var(--accent)"></i>
+              <i style="flex:24;background:var(--draw)"></i>
+              <i style="flex:24;background:var(--away)"></i>
             </div>
           </div>
-          <div class="card" style="margin-top:12px">
-            <small style="color:var(--muted)">Предварительный счёт</small>
-            <strong style="display:block;font-size:32px;margin-top:6px">2:1</strong>
-            <p class="sub" style="margin:6px 0 0">Самая вероятная клетка сетки · 12%</p>
-            <p class="sub" style="margin:4px 0 0">Ожидаемые голы λ 1.64 : 0.96 — среднее забитых и пропущенных за 5 матчей, без Elo, таблицы и травм.</p>
+          <div class="card scoreboard" style="margin-top:12px">
+            <div>
+              <small style="color:var(--muted)">Предварительный счёт</small>
+              <div class="digits">2:1</div>
+              <span class="chip">12%  ·  самый вероятный</span>
+            </div>
+            <div class="meters">
+              <small style="color:var(--muted)">Ожидаемые голы</small>
+              <div>
+                <div class="meter-row">Arsenal <b>1.64</b></div>
+                <div class="meter"><span style="width:55%;background:var(--accent)"></span></div>
+              </div>
+              <div>
+                <div class="meter-row">Chelsea <b>0.96</b></div>
+                <div class="meter"><span style="width:32%;background:var(--away)"></span></div>
+              </div>
+              <p class="sub" style="margin:0">1.64 : 0.96  ·  по голам за 5 матчей</p>
+            </div>
           </div>
-          <div class="facts" style="margin-top:12px">
-            <div class="fact"><small>Форма</small><strong>Хозяева: WWDLW</strong><div>Гости: WLDDW</div></div>
-            <div class="fact"><small>Рейтинг Elo</small><strong>Хозяева: 1684</strong><div>Гости: 1611</div></div>
+          <p class="sub" style="margin:16px 0 8px">Контекст матча</p>
+          <div class="facts">
+            <div class="fact">
+              <small>Форма</small>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span style="color:var(--muted);width:64px">Хозяева</span><div class="pills"><i class="pill w">W</i><i class="pill w">W</i><i class="pill d">D</i><i class="pill l">L</i><i class="pill w">W</i></div></div>
+              <div style="display:flex;gap:8px;align-items:center"><span style="color:var(--muted);width:64px">Гости</span><div class="pills"><i class="pill w">W</i><i class="pill l">L</i><i class="pill d">D</i><i class="pill d">D</i><i class="pill w">W</i></div></div>
+            </div>
+            <div class="fact"><small>Рейтинг Elo</small><strong style="font-family:Fira Code">1684  ·  1611</strong><div style="color:var(--muted);font-size:12px;margin-top:4px">разница +73</div></div>
             <div class="fact"><small>Личные встречи</small><strong>2 победы хозяев / 1 ничья</strong></div>
-            <div class="fact"><small>Таблица</small><strong>Хозяева: 2</strong><div>Гости: 6</div></div>
+            <div class="fact"><small>Таблица</small><strong style="font-family:Fira Code">2  ·  6</strong><div style="color:var(--muted);font-size:12px;margin-top:4px">20 матчей в кэше</div></div>
           </div>
           <div class="card" style="margin-top:12px;min-height:auto">
             <strong>AI-пояснение</strong>

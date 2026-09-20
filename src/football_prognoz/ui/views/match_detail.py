@@ -8,23 +8,97 @@ from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.ui.components.crest import crest_image
 from football_prognoz.ui.components.probability_bar import preliminary_score_card, probability_bar
 from football_prognoz.ui.runtime import disclaimer, error_banner, info_banner
-from football_prognoz.ui.theme import CARD, FG, MUTED, fact_runs, glass_border
+from football_prognoz.ui.theme import (
+    ACCENT,
+    AWAY,
+    CARD,
+    DRAW,
+    FG,
+    MUTED,
+    fact_runs,
+    glass_border,
+)
+
+_ON_PILL = "#0F172A"
+_FORM_COLORS = {"W": ACCENT, "D": DRAW, "L": AWAY}
 
 
-def _fact(title: str, lines: list[str]) -> ft.Control:
+def _fact(title: str, body: ft.Control) -> ft.Control:
     return ft.Container(
         content=ft.Column(
             [
                 ft.Text(title, size=11, color=MUTED),
-                *[ft.Text(line, size=13, color=FG, weight=ft.FontWeight.W_600) for line in lines],
+                body,
             ],
-            spacing=6,
+            spacing=8,
         ),
         bgcolor=CARD,
         border=glass_border(),
         border_radius=12,
         padding=12,
         expand=True,
+    )
+
+
+def _form_pills(code: str) -> ft.Control:
+    if not code or code == "—":
+        return ft.Text("—", size=13, color=MUTED)
+    chips: list[ft.Control] = []
+    for char in code:
+        color = _FORM_COLORS.get(char)
+        if color is None:
+            continue
+        chips.append(
+            ft.Container(
+                content=ft.Text(
+                    char,
+                    size=11,
+                    weight=ft.FontWeight.BOLD,
+                    color=_ON_PILL,
+                ),
+                bgcolor=color,
+                width=22,
+                height=22,
+                border_radius=6,
+                alignment=ft.Alignment.CENTER,
+            )
+        )
+    return ft.Row(chips, spacing=4) if chips else ft.Text(code, size=13, color=FG)
+
+
+def _form_block(home: str, away: str) -> ft.Control:
+    return ft.Column(
+        [
+            ft.Row(
+                [ft.Text("Хозяева", size=12, color=MUTED, width=64), _form_pills(home)],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Row(
+                [ft.Text("Гости", size=12, color=MUTED, width=64), _form_pills(away)],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        ],
+        spacing=6,
+    )
+
+
+def _elo_block(home: float, away: float) -> ft.Control:
+    delta = home - away
+    sign = f"{delta:+.0f}"
+    return ft.Column(
+        [
+            ft.Text(
+                f"{home:.0f}  ·  {away:.0f}",
+                size=16,
+                weight=ft.FontWeight.W_600,
+                color=FG,
+                font_family="Fira Code",
+            ),
+            ft.Text(f"разница {sign}", size=12, color=MUTED),
+        ],
+        spacing=4,
     )
 
 
@@ -75,18 +149,37 @@ def match_detail_view(
     feats = forecast.features
     runs = fact_runs(window_width)
     facts = [
-        _fact("Форма", [f"Хозяева: {feats.home_form}", f"Гости: {feats.away_form}"]),
-        _fact("Рейтинг Elo", [f"Хозяева: {feats.home_elo:.0f}", f"Гости: {feats.away_elo:.0f}"]),
-        _fact("Личные встречи", [feats.h2h_summary]),
+        _fact("Форма", _form_block(feats.home_form, feats.away_form)),
+        _fact("Рейтинг Elo", _elo_block(feats.home_elo, feats.away_elo)),
+        _fact(
+            "Личные встречи",
+            ft.Text(feats.h2h_summary, size=13, color=FG, weight=ft.FontWeight.W_600),
+        ),
         _fact(
             "Таблица",
-            [
-                f"Хозяева: {feats.home_position or '—'}",
-                f"Гости: {feats.away_position or '—'}",
-                f"Матчей в кэше: {feats.sample_matches}",
-            ],
+            ft.Column(
+                [
+                    ft.Text(
+                        f"{feats.home_position or '—'}  ·  {feats.away_position or '—'}",
+                        size=16,
+                        weight=ft.FontWeight.W_600,
+                        color=FG,
+                        font_family="Fira Code",
+                    ),
+                    ft.Text(f"{feats.sample_matches} матчей в кэше", size=12, color=MUTED),
+                ],
+                spacing=4,
+            ),
         ),
     ]
+    fact_grid: ft.Control
+    if runs >= 4:
+        fact_grid = ft.Row(facts, spacing=10)
+    else:
+        fact_grid = ft.Column(
+            [ft.Row(facts[i : i + runs], spacing=10) for i in range(0, 4, runs)],
+            spacing=10,
+        )
     body.extend(
         [
             ft.Row(
@@ -114,13 +207,13 @@ def match_detail_view(
                 font_family="Fira Code",
             ),
             probability_bar(forecast.probabilities),
-            preliminary_score_card(forecast.scoreline),
-            ft.Row(facts[:runs] if runs < 4 else facts, spacing=10)
-            if runs >= 4
-            else ft.Column(
-                [ft.Row(facts[i : i + runs], spacing=10) for i in range(0, 4, runs)],
-                spacing=10,
+            preliminary_score_card(
+                forecast.scoreline,
+                match,
+                compact=runs == 1,
             ),
+            ft.Text("Контекст матча", size=13, color=MUTED),
+            fact_grid,
             ft.Container(
                 content=ft.Column(
                     [
