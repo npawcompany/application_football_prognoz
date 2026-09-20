@@ -137,9 +137,9 @@
     .sub { color: var(--muted); margin: 6px 0 18px; font-size: 13px; }
     .grid {
       display: grid;
-      gap: 12px;
+      gap: 10px;
     }
-    .stage[data-size="1440"] .grid,
+    .stage[data-size="1440"] .grid { grid-template-columns: repeat(4, 1fr); }
     .stage[data-size="1920"] .grid { grid-template-columns: repeat(3, 1fr); }
     .stage[data-size="1024"] .grid { grid-template-columns: repeat(2, 1fr); }
     .stage[data-size="800"] .grid { grid-template-columns: 1fr; }
@@ -157,20 +157,44 @@
     }
     .card:hover { border-color: rgba(34,197,94,0.45); }
     .card-top { display: flex; justify-content: space-between; align-items: center; }
+    .card.league {
+      min-height: 0;
+      padding: 10px;
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+    }
+    .card.league .card-top { flex: 1; min-width: 0; gap: 10px; justify-content: flex-start; }
+    .card-name {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .card-name strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+    }
     .crest {
       width: 40px; height: 40px; object-fit: contain; background: var(--surface);
-      border-radius: 8px; padding: 4px;
+      border-radius: 8px; padding: 4px; flex-shrink: 0;
     }
     .crest.sm { width: 28px; height: 28px; }
+    .crest.league { width: 32px; height: 32px; }
     .mono {
       width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center;
-      font-size: 11px; font-weight: 700;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
     }
     .badge {
       background: var(--surface); border-radius: 8px; padding: 4px 8px; font-size: 12px;
-      font-family: "Fira Code", monospace;
+      font-family: "Fira Code", monospace; flex-shrink: 0;
     }
     .go { margin-top: auto; text-align: right; color: var(--accent); font-size: 12px; }
+    .card.league .go { margin: 0; text-align: left; font-size: 11px; }
     .tabs {
       height: 64px;
       display: flex;
@@ -184,32 +208,42 @@
     .tab.is-on { color: var(--accent); }
     .disclaimer {
       display: flex; gap: 10px; align-items: center;
-      border: 1px solid var(--glass); border-radius: 10px; padding: 12px 14px;
-      color: var(--muted); font-size: 13px; margin-bottom: 16px;
+      border: 1px solid var(--glass); border-radius: 16px; padding: 6px 10px;
+      color: var(--muted); font-size: 11px; margin-bottom: 16px;
+      background: rgba(27,35,54,0.35);
     }
     .match {
       display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
+      flex-wrap: nowrap;
+      gap: 10px;
       align-items: center;
       background: var(--card);
       border: 1px solid var(--glass);
       border-radius: 12px;
-      padding: 14px 16px;
-      margin-bottom: 10px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
       width: 100%;
+      height: 52px;
       text-align: left;
       color: inherit;
+      overflow: hidden;
     }
-    .match .when { width: 120px; }
-    .match .pair { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 240px; }
-    .vs { background: var(--surface); border-radius: 8px; padding: 4px 8px; font-size: 11px; color: var(--muted); }
-    .team { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+    .match .when { width: 108px; flex-shrink: 0; }
+    .match .pair { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; overflow: hidden; }
+    .vs { background: var(--surface); border-radius: 8px; padding: 4px 8px; font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .team { display: flex; gap: 8px; align-items: center; font-weight: 600; min-width: 0; flex: 1; overflow: hidden; }
     .team.away { justify-content: flex-end; }
+    .team .name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
     .cta {
       background: var(--accent); color: #0f172a; border: 0; border-radius: 8px;
       padding: 8px 14px; font-weight: 600; font-size: 12px;
     }
+    .match .cta { padding: 4px 10px; font-size: 11px; flex-shrink: 0; }
     .bar { display: flex; height: 44px; border-radius: 8px; overflow: hidden; margin: 8px 0 12px; font-weight: 700; }
     .bar span { display: grid; place-items: center; }
     .facts { display: grid; gap: 12px; }
@@ -256,8 +290,118 @@
       background: #121a2b; border: 1px solid var(--glass); border-radius: 10px;
       padding: 12px 14px; margin-bottom: 12px; color: var(--fg);
     }
+    .field.is-placeholder { color: var(--muted); }
     .aside { background: var(--card); border: 1px solid var(--glass); border-radius: 12px; padding: 24px; }
+    .aside .db-path { font-family: "Fira Code", monospace; font-size: 12px; color: var(--muted); margin: 0 0 12px; }
     .hidden { display: none !important; }
+    .filter-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 0 0 16px;
+    }
+    .search {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--glass);
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: var(--fg);
+      font: 13px "Fira Sans", sans-serif;
+    }
+    .search::placeholder { color: var(--muted); }
+    .search:focus { outline: none; border-color: var(--accent); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .filter-chip {
+      background: var(--surface);
+      color: var(--fg);
+      border: 1px solid var(--glass);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .filter-chip.is-on {
+      background: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+    }
+    .splash {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      text-align: center;
+      min-height: 100%;
+      padding: 28px;
+    }
+    .splash .title { font-size: 28px; }
+    .splash .sub { margin: 0; font-size: 14px; }
+    .splash .status { font-size: 13px; margin: 0; }
+    .ring {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--glass);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    .ring.sm { width: 42px; height: 42px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .busy-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.72);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 8;
+    }
+    .busy-overlay.is-on { display: flex; }
+    .busy-overlay p { margin: 0; font-size: 14px; }
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 12px;
+      font-size: 13px;
+    }
+    .switch {
+      width: 40px;
+      height: 22px;
+      background: var(--surface);
+      border: 1px solid var(--glass);
+      border-radius: 11px;
+      position: relative;
+      flex-shrink: 0;
+      padding: 0;
+    }
+    .switch i {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--fg);
+      display: block;
+    }
+    .switch.is-on { background: var(--accent); border-color: var(--accent); }
+    .switch.is-on i { left: auto; right: 2px; background: #0f172a; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    .btn-outline {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid var(--glass);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-weight: 600;
+      font-size: 12px;
+    }
   </style>
 </head>
 <body>
@@ -275,6 +419,10 @@
         <button data-screen="calendar">Календарь</button>
         <button data-screen="forecast">Прогноз</button>
         <button data-screen="settings">Настройки</button>
+        <button data-screen="splash">Сплэш</button>
+      </div>
+      <div class="seg">
+        <button type="button" id="overlay-toggle">Оверлей</button>
       </div>
     </header>
     <div class="stage-wrap">
@@ -300,13 +448,14 @@
       ["CL","UEFA Champions League","Европа","leagues/CL.png"],
       ["EC","UEFA European Championship","Европа","leagues/EC.png"],
       ["BSA","Campeonato Brasileiro","Бразилия",""],
-      ["WC","FIFA World Cup","Мир",""],
+      ["WC","FIFA World Cup","Мир","leagues/WC.png"],
     ];
     const MATCHES = [
       ["Arsenal","Chelsea","57-arsenal","61-chelsea","21.09.2026","16:30 UTC"],
       ["Manchester City","Manchester United","65-mancity","66-manutd","21.09.2026","18:45 UTC"],
       ["Liverpool","Tottenham Hotspur","64-liverpool","73-tottenham","22.09.2026","14:00 UTC"],
       ["Newcastle United","Aston Villa","67-newcastle","58-astonvilla","22.09.2026","19:00 UTC"],
+      ["Brighton & Hove Albion","Wolverhampton Wanderers","397-brightonhove","76-wolverhampton","23.09.2026","20:00 UTC"],
     ];
     const MONO = { BSA: ["BSA","#009739"], WC: ["WC","#326295"] };
 
@@ -326,16 +475,35 @@
       return `<nav class="tabs">${items.map(([id,label]) =>
         `<button class="tab ${id===active?"is-on":""}" data-screen="${id}">${label}</button>`).join("")}</nav>`;
     }
+    function filterBar(hint, chips) {
+      return `<div class="filter-bar">
+        <input class="search" type="search" placeholder="${hint}" aria-label="${hint}" />
+        <div class="chips">${chips.map(([label, on]) =>
+          `<button type="button" class="filter-chip ${on?"is-on":""}">${label}</button>`).join("")}</div>
+      </div>`;
+    }
+    function overlay(message) {
+      return `<div class="busy-overlay" aria-hidden="true">
+        <div class="ring sm"></div>
+        <p>${message}</p>
+      </div>`;
+    }
     function leagues() {
       return `${chrome("Football Prognoz — Лиги")}
         <div class="content">
           <h2 class="title">Лиги</h2>
           <p class="sub">Бесплатный план football-data.org: 12 соревнований.</p>
+          ${filterBar("Поиск лиги", [["Все лиги", true], ["Любимые", false]])}
           <div class="grid">${LEAGUES.map(([code,name,country,file]) => `
-            <button class="card" data-screen="calendar">
-              <div class="card-top">${crestImg(file, code)}<span class="badge">${code}</span></div>
-              <strong>${name}</strong><span class="sub" style="margin:0">${country}</span>
-              <div class="go">Открыть календарь →</div>
+            <button class="card league" data-screen="calendar" title="${name}">
+              <div class="card-top">
+                ${crestImg(file, code, "league")}
+                <div class="card-name">
+                  <strong>${name}</strong>
+                  <span class="go">Календарь</span>
+                </div>
+                <span class="badge">${code}</span>
+              </div>
             </button>`).join("")}</div>
         </div>${tabs("leagues")}`;
     }
@@ -344,14 +512,15 @@
         <div class="content">
           <p class="sub" style="margin:0">Premier League</p>
           <h2 class="title">Предстоящие матчи</h2>
-          <div class="disclaimer">Прогноз статистический. Это не совет ставить деньги. Используйте данные исключительно в целях спортивной аналитики.</div>
+          ${filterBar("Команда", [["Предстоящие", true], ["Все матчи", false]])}
+          <div class="disclaimer">Прогноз статистический. Это не совет ставить деньги.</div>
           ${MATCHES.map(([h,a,hc,ac,d,t]) => `
             <button class="match" data-screen="forecast">
               <div class="when"><div>${d}</div><small style="color:var(--muted)">${t}</small></div>
               <div class="pair">
-                <div class="team">${crestImg("teams/"+hc+".png", h, "sm")}${h}</div>
+                <div class="team">${crestImg("teams/"+hc+".png", h, "sm")}<span class="name" title="${h}">${h}</span></div>
                 <span class="vs">VS</span>
-                <div class="team away">${a}${crestImg("teams/"+ac+".png", a, "sm")}</div>
+                <div class="team away"><span class="name" title="${a}">${a}</span>${crestImg("teams/"+ac+".png", a, "sm")}</div>
               </div>
               <span class="badge">SCHEDULED</span>
               <span class="cta">Прогноз</span>
@@ -414,7 +583,7 @@
             <strong>AI-пояснение</strong>
             <p class="sub" style="margin:8px 0 0">AI не настроен. Добавьте OPENAI_API_KEY в Настройках — числа уже посчитаны локально.</p>
           </div>
-        </div>${tabs("forecast")}`;
+        </div>${tabs("forecast")}${overlay("Считаем прогноз…")}`;
     }
     function settings() {
       return `${chrome("Football Prognoz — Настройки")}
@@ -426,28 +595,101 @@
               <label>OPENAI_API_KEY · необязательный</label><div class="field">••••••••••••••••</div>
               <label>OPENAI_MODEL</label><div class="field">gpt-4o-mini</div>
               <label>OPENAI_BASE_URL</label><div class="field">https://api.openai.com/v1</div>
-              <button class="cta">Сохранить</button>
+              <label>Любимые лиги</label><div class="field is-placeholder">PL,PD,SA</div>
+              <div class="switch-row"><span>Ждать обновление всех лиг при старте</span><button type="button" class="switch" aria-pressed="false"><i></i></button></div>
+              <div class="switch-row"><span>Показывать AI-пояснение</span><button type="button" class="switch is-on" aria-pressed="true"><i></i></button></div>
+              <div class="switch-row"><span>Компактный календарь</span><button type="button" class="switch" aria-pressed="false"><i></i></button></div>
+              <div class="actions">
+                <button class="cta">Сохранить</button>
+                <button type="button" class="btn-outline">Проверить football-data.org</button>
+                <button type="button" class="btn-outline">Очистить кэш</button>
+              </div>
             </div>
             <aside class="aside">
               <strong>Локальное хранение ключей</strong>
               <p class="sub">Ключи хранятся только в локальном .env и не попадают в git. Модель Elo + Poisson считает вероятности 1X2 на этом компьютере. Это не совет ставить деньги.</p>
+              <strong>База данных</strong>
+              <p class="db-path">data/cache/prognoz.db</p>
               <p class="sub">football-data.org · лимит 10 запросов/мин</p>
+              <p class="sub">OpenAI опционален для пояснения, не для выбора исхода</p>
             </aside>
           </div>
         </div>${tabs("settings")}`;
     }
-    const screens = { leagues, calendar, forecast, settings };
+    function splash() {
+      return `${chrome("Football Prognoz")}
+        <div class="content splash">
+          <h2 class="title">Football Prognoz</h2>
+          <p class="sub">Загрузка данных…</p>
+          <div class="ring" aria-hidden="true"></div>
+          <p class="status">Читаем кэш…</p>
+        </div>`;
+    }
+    const screens = { leagues, calendar, forecast, settings, splash };
     let screen = "leagues";
+    let overlayForced = null;
+    (function initFromQuery() {
+      const params = new URLSearchParams(location.search);
+      const size = params.get("size");
+      const sc = params.get("screen");
+      if (size && ["1920", "1440", "1024", "800"].includes(size)) {
+        document.getElementById("stage").dataset.size = size;
+        document.querySelectorAll("#sizes button").forEach((b) => b.classList.toggle("is-on", b.dataset.size === size));
+      }
+      if (sc && screens[sc]) {
+        screen = sc;
+        document.querySelectorAll("#screens button").forEach((b) => b.classList.toggle("is-on", b.dataset.screen === screen));
+      }
+      if (params.get("overlay") === "1") overlayForced = true;
+      if (params.get("overlay") === "0") overlayForced = false;
+    })();
+    function overlayVisible() {
+      return overlayForced === true;
+    }
+    function applyOverlay() {
+      const visible = overlayVisible();
+      document.querySelectorAll(".busy-overlay").forEach((el) => {
+        el.classList.remove("is-on", "is-off");
+        if (overlayForced === true) el.classList.add("is-on");
+        if (overlayForced === false) el.classList.add("is-off");
+      });
+      const btn = document.getElementById("overlay-toggle");
+      if (btn) btn.classList.toggle("is-on", visible);
+    }
     function render() {
       document.getElementById("main-window").innerHTML = screens[screen]();
-      document.getElementById("second-window").innerHTML = screens[screen === "forecast" ? "leagues" : "forecast"]();
+      const second = screen === "forecast" ? "leagues" : "forecast";
+      document.getElementById("second-window").innerHTML = screens[second]();
+      applyOverlay();
     }
     document.getElementById("sizes").addEventListener("click", (e) => {
       const btn = e.target.closest("button"); if (!btn) return;
       document.querySelectorAll("#sizes button").forEach((b) => b.classList.toggle("is-on", b === btn));
       document.getElementById("stage").dataset.size = btn.dataset.size;
+      applyOverlay();
+    });
+    document.getElementById("overlay-toggle").addEventListener("click", () => {
+      overlayForced = !overlayVisible();
+      if (overlayForced && screen !== "forecast") {
+        screen = "forecast";
+        document.querySelectorAll("#screens button").forEach((b) => b.classList.toggle("is-on", b.dataset.screen === screen));
+        render();
+        return;
+      }
+      applyOverlay();
     });
     document.body.addEventListener("click", (e) => {
+      const chip = e.target.closest(".filter-chip");
+      if (chip) {
+        chip.parentElement.querySelectorAll(".filter-chip").forEach((c) => c.classList.toggle("is-on", c === chip));
+        return;
+      }
+      const sw = e.target.closest(".switch");
+      if (sw) {
+        sw.classList.toggle("is-on");
+        sw.setAttribute("aria-pressed", sw.classList.contains("is-on") ? "true" : "false");
+        return;
+      }
       const btn = e.target.closest("[data-screen]");
       if (!btn || btn.closest("#sizes")) return;
       screen = btn.dataset.screen;

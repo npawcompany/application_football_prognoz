@@ -14,7 +14,10 @@ Desktop window 1440×900, dark OLED glass (`#0F172A`). App bar + body. ≥1280: 
 
 ## Content
 Title **Лиги**. Subtitle: «Бесплатный план football-data.org: 12 соревнований.»
-12 cards with **official emblems** (`competition.emblem` from football-data.org, fallback `assets/crests/leagues/{code}.png`): Premier League (PL), Primera Division (PD), Serie A (SA), Bundesliga (BL1), Ligue 1 (FL1), Primeira Liga (PPL), Eredivisie (DED), Championship (ELC), Brasileirão (BSA), Champions League (CL), World Cup (WC), European Championship (EC). Leading crest, name, code. Never generic shields.
+12 cards with **official emblems** (`competition.emblem` from football-data.org, fallback `assets/crests/leagues/{code}.png`): Premier League (PL), Primera Division (PD), Serie A (SA), Bundesliga (BL1), Ligue 1 (FL1), Primeira Liga (PPL), Eredivisie (DED), Championship (ELC), Brasileirão (BSA), Champions League (CL), World Cup (WC), European Championship (EC). Leading crest, name, code, accent «Календарь». Never generic shields. Long names ellipsize (`overflow` hidden, tooltip = full name).
+
+## Filter
+`filter_bar`: search field **Поиск лиги**. Chips **Все лиги** / **Любимые** (chips only when favorite codes exist). Selected chip uses accent fill.
 
 ## States
 Loading: progress ring. Empty: muted banner «Нет лиг. Проверьте ключ API в Настройках.» Error: destructive banner.
