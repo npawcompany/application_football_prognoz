@@ -33,7 +33,7 @@ CARD_PADDING = 12
 
 
 def glass_border() -> ft.Border:
-    return ft.border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.WHITE))
+    return ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.WHITE))
 
 
 def apply_page_fonts(page: ft.Page) -> None:

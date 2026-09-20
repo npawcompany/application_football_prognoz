@@ -7,6 +7,16 @@ from football_prognoz.domain.match import Match
 from football_prognoz.domain.prediction import MatchFeatures
 from football_prognoz.models.elo import INITIAL_ELO, build_elo
 
+EloFingerprint = tuple[tuple[int, str, int | None, int | None], ...]
+
+
+def _elo_fingerprint(matches: list[Match]) -> EloFingerprint:
+    return tuple(
+        (item.id, item.utc_date.isoformat(), item.score.home, item.score.away)
+        for item in matches
+        if item.status.is_finished()
+    )
+
 
 def _form_char(match: Match, team_id: int) -> str:
     if match.score.home is None or match.score.away is None:
@@ -28,6 +38,16 @@ class FeatureService:
     def __init__(self, store: SQLiteStore, form_n: int = 5) -> None:
         self._store = store
         self._form_n = form_n
+        self._elo_cache: dict[str, tuple[EloFingerprint, dict[int, float]]] = {}
+
+    def _elo_for(self, competition_code: str, history: list[Match]) -> dict[int, float]:
+        fingerprint = _elo_fingerprint(history)
+        cached = self._elo_cache.get(competition_code)
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+        elo = build_elo(history)
+        self._elo_cache[competition_code] = (fingerprint, elo)
+        return elo
 
     def build(self, match: Match) -> MatchFeatures:
         history = [
@@ -35,18 +55,12 @@ class FeatureService:
             for item in self._store.list_matches(match.competition_code)
             if item.status.is_finished() and item.utc_date < match.utc_date
         ]
-        elo = build_elo(history)
+        elo = self._elo_for(match.competition_code, history)
         home_games = [m for m in history if match.home_id in {m.home_id, m.away_id}]
         away_games = [m for m in history if match.away_id in {m.home_id, m.away_id}]
-        h2h = [
-            m
-            for m in history
-            if {m.home_id, m.away_id} == {match.home_id, match.away_id}
-        ][-5:]
+        h2h = [m for m in history if {m.home_id, m.away_id} == {match.home_id, match.away_id}][-5:]
 
-        standings = {
-            row.team_id: row for row in self._store.list_standings(match.competition_code)
-        }
+        standings = {row.team_id: row for row in self._store.list_standings(match.competition_code)}
         home_row = standings.get(match.home_id)
         away_row = standings.get(match.away_id)
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from football_prognoz.ai.explainer import Explainer
@@ -39,6 +41,33 @@ class MatchService:
 
     def ping(self) -> list[Competition]:
         return self._client.ping()
+
+    def clear_cache(self) -> None:
+        """Drop SQLite rows. The next read uses cache-first fallbacks."""
+        self._store.clear_all()
+        self._features = FeatureService(self._store)
+
+    def cached_competitions(self) -> list[Competition]:
+        """Return stored competitions or the free-tier list. Never hits HTTP."""
+        cached = self._store.list_competitions()
+        return cached if cached else list(FREE_COMPETITIONS)
+
+    def bootstrap(
+        self,
+        progress: Callable[[str, int, int], None] | None = None,
+    ) -> list[Competition]:
+        """Load the competition list (cache/TTL). Do not prefetch every league."""
+        items = self.list_competitions()
+        if progress is not None:
+            progress("Лиги", 1, 1)
+        return items
+
+    def prefetch_competition(self, code: str, *, force: bool = False) -> list[Match]:
+        """Refresh one competition; on API errors return whatever is already cached."""
+        try:
+            return self.refresh_competition(code, force=force)
+        except FootballDataError:
+            return self._store.list_matches(code)
 
     def list_competitions(self, *, force: bool = False) -> list[Competition]:
         if not force and self._store.is_fresh("competitions", TTL_FINISHED_HOURS):
@@ -94,11 +123,13 @@ class MatchService:
     def get_match(self, match_id: int) -> Match | None:
         return self._store.get_match(match_id)
 
-    def forecast(self, match: Match) -> MatchForecast:
+    def forecast(self, match: Match, *, explain: bool = True) -> MatchForecast:
         features = self._features.build(match)
         probabilities = self._predictor.predict(match, features)
         scoreline = self._predictor.preliminary_score(features)
-        explanation = self._explainer.explain(match, features, probabilities, scoreline)
+        explanation = None
+        if explain:
+            explanation = self._explainer.explain(match, features, probabilities, scoreline)
         return MatchForecast(
             match=match,
             probabilities=probabilities,
@@ -106,3 +137,12 @@ class MatchService:
             explanation=explanation,
             scoreline=scoreline,
         )
+
+    def explain_forecast(self, forecast: MatchForecast) -> MatchForecast:
+        explanation = self._explainer.explain(
+            forecast.match,
+            forecast.features,
+            forecast.probabilities,
+            forecast.scoreline,
+        )
+        return replace(forecast, explanation=explanation)

@@ -86,16 +86,34 @@ class SQLiteStore:
                 """
             )
 
-    def is_fresh(self, cache_key: str, ttl_hours: float) -> bool:
+    def fetched_at(self, cache_key: str) -> datetime | None:
+        """Return the cache timestamp even when older than any TTL."""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT fetched_at FROM meta WHERE cache_key = ?",
                 (cache_key,),
             ).fetchone()
         if row is None:
+            return None
+        return _parse_dt(row["fetched_at"])
+
+    def is_fresh(self, cache_key: str, ttl_hours: float) -> bool:
+        fetched = self.fetched_at(cache_key)
+        if fetched is None:
             return False
-        fetched = _parse_dt(row["fetched_at"])
         return _utcnow() - fetched < timedelta(hours=ttl_hours)
+
+    def clear_all(self) -> None:
+        """Delete cached rows; keep tables and indexes."""
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                DELETE FROM matches;
+                DELETE FROM standings;
+                DELETE FROM competitions;
+                DELETE FROM meta;
+                """
+            )
 
     def mark_fetched(self, cache_key: str, etag: str | None = None) -> None:
         now = _utcnow().isoformat()
