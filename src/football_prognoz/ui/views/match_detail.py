@@ -6,76 +6,23 @@ import flet as ft
 
 from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.ui.components.crest import crest_image
+from football_prognoz.ui.components.fact_card import fact_card
+from football_prognoz.ui.components.form_pills import form_pills
 from football_prognoz.ui.components.probability_bar import preliminary_score_card, probability_bar
 from football_prognoz.ui.runtime import disclaimer, error_banner, info_banner
-from football_prognoz.ui.theme import (
-    ACCENT,
-    AWAY,
-    CARD,
-    DRAW,
-    FG,
-    MUTED,
-    fact_runs,
-    glass_border,
-)
-
-_ON_PILL = "#0F172A"
-_FORM_COLORS = {"W": ACCENT, "D": DRAW, "L": AWAY}
-
-
-def _fact(title: str, body: ft.Control) -> ft.Control:
-    return ft.Container(
-        content=ft.Column(
-            [
-                ft.Text(title, size=11, color=MUTED),
-                body,
-            ],
-            spacing=8,
-        ),
-        bgcolor=CARD,
-        border=glass_border(),
-        border_radius=12,
-        padding=12,
-        expand=True,
-    )
-
-
-def _form_pills(code: str) -> ft.Control:
-    if not code or code == "—":
-        return ft.Text("—", size=13, color=MUTED)
-    chips: list[ft.Control] = []
-    for char in code:
-        color = _FORM_COLORS.get(char)
-        if color is None:
-            continue
-        chips.append(
-            ft.Container(
-                content=ft.Text(
-                    char,
-                    size=11,
-                    weight=ft.FontWeight.BOLD,
-                    color=_ON_PILL,
-                ),
-                bgcolor=color,
-                width=22,
-                height=22,
-                border_radius=6,
-                alignment=ft.Alignment.CENTER,
-            )
-        )
-    return ft.Row(chips, spacing=4) if chips else ft.Text(code, size=13, color=FG)
+from football_prognoz.ui.theme import CARD, FG, MUTED, fact_runs, glass_border
 
 
 def _form_block(home: str, away: str) -> ft.Control:
     return ft.Column(
         [
             ft.Row(
-                [ft.Text("Хозяева", size=12, color=MUTED, width=64), _form_pills(home)],
+                [ft.Text("Хозяева", size=12, color=MUTED, width=64), form_pills(home)],
                 spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             ft.Row(
-                [ft.Text("Гости", size=12, color=MUTED, width=64), _form_pills(away)],
+                [ft.Text("Гости", size=12, color=MUTED, width=64), form_pills(away)],
                 spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
@@ -111,6 +58,7 @@ def match_detail_view(
     window_width: int = 1440,
     embedded: bool = False,
     show_disclaimer: bool = True,
+    show_ai_block: bool = True,
 ) -> ft.Control:
     header: list[ft.Control] = []
     if not embedded:
@@ -149,13 +97,13 @@ def match_detail_view(
     feats = forecast.features
     runs = fact_runs(window_width)
     facts = [
-        _fact("Форма", _form_block(feats.home_form, feats.away_form)),
-        _fact("Рейтинг Elo", _elo_block(feats.home_elo, feats.away_elo)),
-        _fact(
+        fact_card("Форма", _form_block(feats.home_form, feats.away_form)),
+        fact_card("Рейтинг Elo", _elo_block(feats.home_elo, feats.away_elo)),
+        fact_card(
             "Личные встречи",
             ft.Text(feats.h2h_summary, size=13, color=FG, weight=ft.FontWeight.W_600),
         ),
-        _fact(
+        fact_card(
             "Таблица",
             ft.Column(
                 [
@@ -214,6 +162,10 @@ def match_detail_view(
             ),
             ft.Text("Контекст матча", size=13, color=MUTED),
             fact_grid,
+        ]
+    )
+    if show_ai_block:
+        body.append(
             ft.Container(
                 content=ft.Column(
                     [
@@ -242,7 +194,6 @@ def match_detail_view(
                 border=glass_border(),
                 border_radius=12,
                 padding=12,
-            ),
-        ]
-    )
+            )
+        )
     return ft.Column(body, spacing=12, expand=True, scroll=ft.ScrollMode.AUTO)

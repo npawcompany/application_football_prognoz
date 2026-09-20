@@ -5,9 +5,11 @@ from collections.abc import Callable
 import flet as ft
 
 from football_prognoz.domain.team import Competition
+from football_prognoz.ui.components.filter_bar import filter_bar
 from football_prognoz.ui.components.league_card import league_card
+from football_prognoz.ui.components.section_header import section_header
 from football_prognoz.ui.runtime import error_banner, info_banner
-from football_prognoz.ui.theme import FG, LEAGUE_ASPECT_RATIO, MUTED, grid_extent
+from football_prognoz.ui.theme import LEAGUE_ASPECT_RATIO, grid_extent
 
 
 def leagues_view(
@@ -19,36 +21,37 @@ def leagues_view(
     on_refresh: Callable[[], None],
     window_width: int = 1440,
     selected_code: str | None = None,
+    query: str = "",
+    on_query: Callable[[str], None] | None = None,
+    favorites_only: bool = False,
+    on_favorites_only: Callable[[bool], None] | None = None,
+    has_favorites: bool = False,
 ) -> ft.Control:
-    header = ft.Row(
-        [
-            ft.Column(
-                [
-                    ft.Text(
-                        "Лиги",
-                        size=22,
-                        weight=ft.FontWeight.BOLD,
-                        color=FG,
-                        font_family="Fira Code",
-                    ),
-                    ft.Text(
-                        "Бесплатный план football-data.org: 12 соревнований.",
-                        size=12,
-                        color=MUTED,
-                    ),
-                ],
-                spacing=2,
-                expand=True,
-            ),
-            ft.IconButton(
-                icon=ft.Icons.REFRESH,
-                tooltip="Обновить",
-                on_click=lambda _e: on_refresh(),
-            ),
-        ],
-        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+    header = section_header(
+        "Лиги",
+        "Бесплатный план football-data.org: 12 соревнований.",
+        trailing=ft.IconButton(
+            icon=ft.Icons.REFRESH,
+            tooltip="Обновить",
+            on_click=lambda _e: on_refresh(),
+        ),
     )
     body: list[ft.Control] = [header]
+    if on_query is not None:
+        chips: list[tuple[str, bool, Callable[[], None]]] | None = None
+        if has_favorites and on_favorites_only is not None:
+            chips = [
+                ("Все лиги", not favorites_only, lambda: on_favorites_only(False)),
+                ("Любимые", favorites_only, lambda: on_favorites_only(True)),
+            ]
+        body.append(
+            filter_bar(
+                hint="Поиск лиги",
+                value=query,
+                on_change=on_query,
+                chips=chips,
+            )
+        )
     if error:
         body.append(error_banner(error))
     if loading:
