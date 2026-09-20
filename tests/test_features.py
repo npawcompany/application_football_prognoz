@@ -222,6 +222,24 @@ def test_clear_cache_empties_store_and_resets_elo(tmp_path: Path) -> None:
     assert codes == {item.code for item in FREE_COMPETITIONS}
 
 
+def test_competition_matches_includes_finished(
+    tmp_path: Path, matches_payload: dict
+) -> None:
+    store = SQLiteStore(tmp_path / "svc.db")
+    matches = [match_from_api(raw, "PL") for raw in matches_payload["matches"]]
+    store.upsert_matches(matches)
+    service = MatchService(
+        client=_BoomClient(),
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(None, "test-model"),
+    )
+    rows = service.competition_matches("PL")
+    assert any(item.status is MatchStatus.FINISHED for item in rows)
+    assert {item.id for item in rows} == {item.id for item in matches}
+
+
 def test_forecast_explain_false_skips_llm(
     tmp_path: Path, matches_payload: dict, standings_payload: dict
 ) -> None:

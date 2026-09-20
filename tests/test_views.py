@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import flet as ft
 
+from football_prognoz.config import Settings
 from football_prognoz.domain.match import Match, MatchStatus, Score
 from football_prognoz.domain.prediction import (
     MatchFeatures,
@@ -15,6 +16,7 @@ from football_prognoz.domain.team import Competition
 from football_prognoz.ui.views.fixtures import fixtures_view
 from football_prognoz.ui.views.leagues import leagues_view
 from football_prognoz.ui.views.match_detail import match_detail_view
+from football_prognoz.ui.views.settings import SettingsForm, settings_view
 
 
 def _walk(control: object):
@@ -31,7 +33,10 @@ def _walk(control: object):
 def _texts(control: object) -> list[str]:
     found: list[str] = []
     for node in _walk(control):
-        for attr in ("value", "text", "label", "hint_text"):
+        if isinstance(node, str):
+            found.append(node)
+            continue
+        for attr in ("value", "text", "label", "hint_text", "content"):
             value = getattr(node, attr, None)
             if isinstance(value, str):
                 found.append(value)
@@ -232,3 +237,18 @@ def test_match_detail_keeps_ai_copy_when_enabled() -> None:
     blob = _blob(shown)
     assert "AI-пояснение" in blob
     assert "AI не настроен. Добавьте OPENAI_API_KEY в Настройках" in blob
+
+
+def test_settings_view_builds_from_settings_form() -> None:
+    form = SettingsForm.from_settings(
+        Settings(football_data_api_key="test-key", favorite_leagues="PL,PD")
+    )
+    view = settings_view(
+        form,
+        on_save=lambda _payload: None,
+        on_test=lambda: None,
+        on_clear_cache=lambda: None,
+    )
+    blob = _blob(view)
+    assert "Любимые лиги" in blob
+    assert "Очистить кэш" in blob

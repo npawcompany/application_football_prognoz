@@ -525,7 +525,7 @@ class FootballApp:
         code = self.league.code
 
         def work() -> list[Match]:
-            return self.service.upcoming(code, force=force)
+            return self.service.competition_matches(code, force=force)
 
         run_background(
             self.page,

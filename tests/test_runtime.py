@@ -6,7 +6,12 @@ import threading
 import flet as ft
 
 from football_prognoz.ui.components.splash import splash_view
-from football_prognoz.ui.runtime import hide_preloader, run_background, show_preloader
+from football_prognoz.ui.runtime import (
+    debounce,
+    hide_preloader,
+    run_background,
+    show_preloader,
+)
 from football_prognoz.ui.theme import ACCENT, BG, FG
 
 
@@ -143,6 +148,17 @@ def test_run_background_fallback_thread_does_not_block_caller() -> None:
             break
         threading.Event().wait(0.05)
     assert results == [7]
+
+
+def test_debounce_coalesces_same_key() -> None:
+    page = FakePage()
+    debounce(page, "resize", 0.2, lambda: None)
+    debounce(page, "resize", 0.2, lambda: None)
+    assert len(page.scheduled) == 2
+    first = page.scheduled[0][3]
+    second = page.scheduled[1][3]
+    assert first.cancelled is True
+    assert second.cancelled is False
 
 
 def test_splash_view_indeterminate_and_determinate() -> None:

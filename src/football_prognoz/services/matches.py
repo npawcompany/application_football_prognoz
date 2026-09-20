@@ -109,6 +109,10 @@ class MatchService:
                 pass
         return self._store.list_matches(code)
 
+    def competition_matches(self, code: str, *, force: bool = False) -> list[Match]:
+        """Refresh one league and return every stored match (any status)."""
+        return self.refresh_competition(code, force=force)
+
     def upcoming(self, code: str, *, force: bool = False) -> list[Match]:
         now = datetime.now(UTC)
         matches = self.refresh_competition(code, force=force)

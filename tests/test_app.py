@@ -73,6 +73,7 @@ class FakeMatchService:
         self.bootstrap_calls = 0
         self.list_calls = 0
         self.upcoming_calls = 0
+        self.fixture_calls = 0
         self.forecast_calls = 0
         self.forecast_explain: list[bool] = []
         self.explain_calls = 0
@@ -97,6 +98,35 @@ class FakeMatchService:
     def upcoming(self, code: str, *, force: bool = False) -> list[Match]:
         self.upcoming_calls += 1
         return []
+
+    def competition_matches(self, code: str, *, force: bool = False) -> list[Match]:
+        self.fixture_calls += 1
+        return [
+            Match(
+                id=7,
+                competition_code=code,
+                utc_date=datetime.now(UTC) - timedelta(days=2),
+                status=MatchStatus.FINISHED,
+                matchday=5,
+                home_id=64,
+                home_name="Liverpool",
+                away_id=66,
+                away_name="Man United",
+                score=Score(2, 1),
+            ),
+            Match(
+                id=42,
+                competition_code=code,
+                utc_date=datetime.now(UTC) + timedelta(days=1),
+                status=MatchStatus.SCHEDULED,
+                matchday=6,
+                home_id=57,
+                home_name="Arsenal",
+                away_id=65,
+                away_name="Man City",
+                score=Score(None, None),
+            ),
+        ]
 
     def forecast(self, match: Match, *, explain: bool = True) -> MatchForecast:
         self.forecast_calls += 1
@@ -184,6 +214,7 @@ def test_init_with_key_reads_cache_not_network() -> None:
     app, page, service = _app()
     assert service.cached_calls == 1
     assert service.upcoming_calls == 0
+    assert service.fixture_calls == 0
     assert service.forecast_calls == 0
     assert service.list_calls == 0
     assert service.bootstrap_calls == 0
@@ -256,6 +287,67 @@ def test_save_settings_accepts_dict(monkeypatch) -> None:
     assert written["COMPACT_FIXTURES"] == "true"
     assert app.status == "Настройки сохранены."
     assert app.settings is new_settings
+
+
+def test_boot_prefetch_wait_schedules_prefetch_not_upcoming() -> None:
+    app, page, service = _app(settings=_settings(prefetch_wait_on_start=True))
+    assert service.upcoming_calls == 0
+    assert service.prefetch_calls == []
+    assert len(page.scheduled) == 1
+    _drain_last(page)
+    assert service.upcoming_calls == 0
+    assert service.prefetch_calls == []
+    assert len(page.scheduled) >= 2
+    assert app.booting is True
+    _drain_last(page)
+    assert service.prefetch_calls == [item.code for item in service.competitions]
+    assert service.upcoming_calls == 0
+    assert app.booting is False
+
+
+def test_clear_cache_drains_to_status() -> None:
+    app, page, service = _app()
+    app.booting = False
+    app.section = "settings"
+    app._clear_cache()
+    _drain_last(page)
+    assert service.clear_calls == 1
+    assert app.status == "Кэш очищен."
+
+
+def test_filtered_matches_keeps_finished_when_upcoming_only_false() -> None:
+    app, _page, _service = _app()
+    finished = Match(
+        id=7,
+        competition_code="PL",
+        utc_date=datetime.now(UTC) - timedelta(days=2),
+        status=MatchStatus.FINISHED,
+        matchday=5,
+        home_id=64,
+        home_name="Liverpool",
+        away_id=66,
+        away_name="Man United",
+        score=Score(2, 1),
+    )
+    live = _match()
+    app.matches = [finished, live]
+    app.upcoming_only = False
+    assert [item.id for item in app._filtered_matches()] == [7, live.id]
+    app.upcoming_only = True
+    assert [item.id for item in app._filtered_matches()] == [live.id]
+
+
+def test_load_fixtures_keeps_finished_matches() -> None:
+    app, page, service = _app()
+    app.booting = False
+    app.league = service.competitions[0]
+    app._load_fixtures()
+    _drain_last(page)
+    assert service.fixture_calls == 1
+    assert service.upcoming_calls == 0
+    assert any(item.status is MatchStatus.FINISHED for item in app.matches)
+    app.upcoming_only = False
+    assert any(item.status is MatchStatus.FINISHED for item in app._filtered_matches())
 
 
 def test_open_match_forecasts_with_explain_false() -> None:
