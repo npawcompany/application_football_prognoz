@@ -4,6 +4,7 @@ import flet as ft
 
 from football_prognoz.domain.match import Match
 from football_prognoz.domain.prediction import Probabilities, Scoreline
+from football_prognoz.ui.components.team_label import team_label
 from football_prognoz.ui.theme import ACCENT, AWAY, CARD, DRAW, FG, MUTED, SURFACE, glass_border
 
 _ON_ACCENT = "#0F172A"
@@ -87,7 +88,7 @@ def _goal_meter(label: str, value: float, color: str) -> ft.Control:
         [
             ft.Row(
                 [
-                    ft.Text(label, size=12, color=MUTED),
+                    team_label(label, size=12, weight=ft.FontWeight.NORMAL, color=MUTED),
                     ft.Text(
                         f"{value:.2f}",
                         size=13,
@@ -97,6 +98,7 @@ def _goal_meter(label: str, value: float, color: str) -> ft.Control:
                     ),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                expand=True,
             ),
             ft.Container(
                 content=ft.Row(
@@ -112,6 +114,7 @@ def _goal_meter(label: str, value: float, color: str) -> ft.Control:
             ),
         ],
         spacing=4,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
 
@@ -162,6 +165,7 @@ def preliminary_score_card(
         ],
         spacing=8,
         expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
     body: ft.Control
     if compact:

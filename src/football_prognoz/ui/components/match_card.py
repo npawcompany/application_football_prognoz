@@ -6,20 +6,8 @@ import flet as ft
 
 from football_prognoz.domain.match import Match
 from football_prognoz.ui.components.crest import crest_image
+from football_prognoz.ui.components.team_label import team_label
 from football_prognoz.ui.theme import ACCENT, CARD, FG, MUTED, SURFACE, glass_border
-
-
-def _name(text: str, *, align: ft.TextAlign = ft.TextAlign.LEFT) -> ft.Text:
-    return ft.Text(
-        text,
-        size=13,
-        weight=ft.FontWeight.W_600,
-        color=FG,
-        expand=True,
-        max_lines=1,
-        overflow=ft.TextOverflow.ELLIPSIS,
-        text_align=align,
-    )
 
 
 def match_card(
@@ -31,7 +19,7 @@ def match_card(
 ) -> ft.Control:
     kickoff = match.utc_date.strftime("%d.%m.%Y")
     time = match.utc_date.strftime("%H:%M UTC")
-    border = ft.border.all(1, ACCENT) if selected else glass_border()
+    border = ft.Border.all(1, ACCENT) if selected else glass_border()
     if compact:
         return ft.Container(
             content=ft.Row(
@@ -46,9 +34,10 @@ def match_card(
                                         size=20,
                                         team_id=match.home_id,
                                     ),
-                                    _name(match.home_name),
+                                    team_label(match.home_name),
                                 ],
                                 spacing=6,
+                                expand=True,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             ft.Row(
@@ -59,14 +48,16 @@ def match_card(
                                         size=20,
                                         team_id=match.away_id,
                                     ),
-                                    _name(match.away_name),
+                                    team_label(match.away_name),
                                 ],
                                 spacing=6,
+                                expand=True,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                         ],
                         spacing=2,
                         expand=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     ),
                     ft.Column(
                         [
@@ -92,7 +83,7 @@ def match_card(
     home = ft.Row(
         [
             crest_image(match.home_crest, label=match.home_name, size=24, team_id=match.home_id),
-            _name(match.home_name),
+            team_label(match.home_name),
         ],
         spacing=8,
         expand=True,
@@ -100,7 +91,7 @@ def match_card(
     )
     away = ft.Row(
         [
-            _name(match.away_name, align=ft.TextAlign.RIGHT),
+            team_label(match.away_name, align=ft.TextAlign.RIGHT),
             crest_image(match.away_crest, label=match.away_name, size=24, team_id=match.away_id),
         ],
         spacing=8,
@@ -122,14 +113,14 @@ def match_card(
                 ft.Container(
                     content=ft.Text("VS", size=11, weight=ft.FontWeight.BOLD, color=MUTED),
                     bgcolor=SURFACE,
-                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                     border_radius=8,
                 ),
                 away,
                 ft.Container(
                     content=ft.Text(match.status.value, size=11, color=MUTED),
                     bgcolor=SURFACE,
-                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                     border_radius=8,
                 ),
                 ft.Container(
@@ -140,7 +131,7 @@ def match_card(
                         color="#0F172A",
                     ),
                     bgcolor=ACCENT,
-                    padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=4),
                     border_radius=8,
                 ),
             ],
@@ -150,7 +141,7 @@ def match_card(
         bgcolor=CARD,
         border=border,
         border_radius=12,
-        padding=ft.padding.symmetric(horizontal=10, vertical=8),
+        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         height=52,
         ink=True,
         on_click=lambda _e, current=match: on_open(current),

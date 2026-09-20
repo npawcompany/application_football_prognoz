@@ -6,6 +6,7 @@ import flet as ft
 
 from football_prognoz.domain.team import Competition
 from football_prognoz.ui.components.crest import crest_image
+from football_prognoz.ui.components.team_label import team_label
 from football_prognoz.ui.theme import ACCENT, CARD, FG, SURFACE, glass_border
 
 
@@ -21,23 +22,21 @@ def league_card(
                 crest_image(item.emblem, label=item.name, size=32, code=item.code),
                 ft.Column(
                     [
-                        ft.Text(
-                            item.name,
-                            size=14,
-                            weight=ft.FontWeight.W_600,
-                            color=FG,
-                            max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ft.Row(
+                            [team_label(item.name, size=14)],
+                            spacing=0,
+                            expand=True,
                         ),
                         ft.Text("Календарь", size=11, color=ACCENT),
                     ],
                     spacing=2,
                     expand=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 ),
                 ft.Container(
                     content=ft.Text(item.code, size=11, weight=ft.FontWeight.W_600, color=FG),
                     bgcolor=SURFACE,
-                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                     border_radius=6,
                 ),
             ],
@@ -45,7 +44,7 @@ def league_card(
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor=CARD,
-        border=ft.border.all(1, ACCENT) if selected else glass_border(),
+        border=ft.Border.all(1, ACCENT) if selected else glass_border(),
         border_radius=12,
         padding=10,
         ink=True,
