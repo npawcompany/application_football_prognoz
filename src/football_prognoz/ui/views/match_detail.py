@@ -6,7 +6,7 @@ import flet as ft
 
 from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.ui.components.crest import crest_image
-from football_prognoz.ui.components.probability_bar import probability_bar
+from football_prognoz.ui.components.probability_bar import preliminary_score_card, probability_bar
 from football_prognoz.ui.runtime import disclaimer, error_banner, info_banner
 from football_prognoz.ui.theme import CARD, FG, MUTED, fact_runs, glass_border
 
@@ -114,6 +114,7 @@ def match_detail_view(
                 font_family="Fira Code",
             ),
             probability_bar(forecast.probabilities),
+            preliminary_score_card(forecast.scoreline),
             ft.Row(facts[:runs] if runs < 4 else facts, spacing=10)
             if runs >= 4
             else ft.Column(

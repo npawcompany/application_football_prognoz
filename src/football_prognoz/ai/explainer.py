@@ -6,12 +6,14 @@ from typing import Any, Protocol
 import httpx
 
 from football_prognoz.domain.match import Match
-from football_prognoz.domain.prediction import Explanation, MatchFeatures, Probabilities
+from football_prognoz.domain.prediction import Explanation, MatchFeatures, Probabilities, Scoreline
 
 SYSTEM_PROMPT = """You explain football statistical forecasts.
-You receive JSON with match facts and model probabilities.
+You receive JSON with match facts, 1X2 probabilities, and an optional preliminary score.
+The preliminary score is the most likely Poisson cell from last-5 goal averages only.
 Write 2-4 short sentences in Russian.
 Do not invent injuries, lineups, xG, or scores that are not in the JSON.
+If a preliminary score is present, you may mention it with its probability; it is not a guarantee.
 Do not give betting advice. Do not claim certainty.
 """
 
@@ -76,8 +78,9 @@ class Explainer:
         match: Match,
         features: MatchFeatures,
         probabilities: Probabilities,
+        scoreline: Scoreline | None = None,
     ) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "match": {
                 "home": match.home_name,
                 "away": match.away_name,
@@ -98,17 +101,32 @@ class Explainer:
                 "home_position": features.home_position,
                 "away_position": features.away_position,
                 "sample_matches": features.sample_matches,
+                "home_recent_goals_for": round(features.home_recent_goals_for, 3),
+                "home_recent_goals_against": round(features.home_recent_goals_against, 3),
+                "away_recent_goals_for": round(features.away_recent_goals_for, 3),
+                "away_recent_goals_against": round(features.away_recent_goals_against, 3),
             },
         }
+        if scoreline is not None:
+            payload["preliminary_score"] = {
+                "label": scoreline.label,
+                "home_goals": scoreline.home_goals,
+                "away_goals": scoreline.away_goals,
+                "probability": round(scoreline.probability, 4),
+                "expected_home": round(scoreline.expected_home, 3),
+                "expected_away": round(scoreline.expected_away, 3),
+            }
+        return payload
 
     def explain(
         self,
         match: Match,
         features: MatchFeatures,
         probabilities: Probabilities,
+        scoreline: Scoreline | None = None,
     ) -> Explanation | None:
         if self._llm is None:
             return None
-        payload = self.build_prompt(match, features, probabilities)
+        payload = self.build_prompt(match, features, probabilities, scoreline)
         text = self._llm.complete(SYSTEM_PROMPT, json.dumps(payload, ensure_ascii=False))
         return Explanation(text=text, model=self._model_name)

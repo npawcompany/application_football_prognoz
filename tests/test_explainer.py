@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from football_prognoz.ai.explainer import Explainer
 from football_prognoz.domain.match import Match, MatchStatus, Score
-from football_prognoz.domain.prediction import MatchFeatures, Probabilities
+from football_prognoz.domain.prediction import MatchFeatures, Probabilities, Scoreline
 
 
 class FakeLLM:
@@ -60,14 +60,18 @@ def test_explainer_disabled_without_llm() -> None:
 def test_explainer_prompt_contains_facts() -> None:
     llm = FakeLLM()
     explainer = Explainer(llm, "gpt-4o-mini")
-    result = explainer.explain(_match(), _features(), Probabilities(0.41, 0.27, 0.32))
+    score = Scoreline(1, 1, 0.14, 1.5, 1.5)
+    result = explainer.explain(_match(), _features(), Probabilities(0.41, 0.27, 0.32), score)
     assert result is not None
     assert "хозяева" in result.text.lower()
     payload = json.loads(llm.user)
     assert payload["match"]["home"] == "Arsenal FC"
     assert payload["match"]["away"] == "Manchester City FC"
     assert payload["facts"]["home_form"] == "WWDLW"
+    assert payload["facts"]["home_recent_goals_for"] == 1.8
     assert payload["probabilities"]["home"] == 0.41
+    assert payload["preliminary_score"]["label"] == "1:1"
+    assert payload["preliminary_score"]["probability"] == 0.14
     assert "injuries" not in payload["facts"]
     assert "угадай" not in llm.system.lower()
     assert "Do not invent" in llm.system

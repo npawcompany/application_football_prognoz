@@ -12,6 +12,9 @@ Categories 1 / X / 2. Direct labels + percent. Do not encode by color alone.
 - 2 (away): `--color-destructive` `#EF4444`
 Accessible fallback: three numbered tiles under the bar.
 
+## Preliminary score
+Card **Предварительный счёт**. Large `H:A` from Poisson mode of last-5 goal averages (K1/K2). Under it: cell probability and λ. Not ceil/floor. Not Elo.
+
 ## Facts card (SDS Stats Card × grid)
 Форма хозяев / гостей · Elo · H2H · места в таблице · матчей в кэше.
 

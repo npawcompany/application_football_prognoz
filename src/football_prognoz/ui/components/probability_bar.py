@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import flet as ft
 
-from football_prognoz.domain.prediction import Probabilities
+from football_prognoz.domain.prediction import Probabilities, Scoreline
 from football_prognoz.ui.theme import ACCENT, AWAY, CARD, DRAW, FG, MUTED, glass_border
 
 
@@ -41,6 +41,34 @@ def probability_bar(probs: Probabilities) -> ft.Control:
                 ),
             ],
             spacing=8,
+        ),
+        bgcolor=CARD,
+        border=glass_border(),
+        border_radius=12,
+        padding=12,
+    )
+
+
+def preliminary_score_card(score: Scoreline) -> ft.Control:
+    percent = f"{score.probability * 100:.0f}%"
+    return ft.Container(
+        content=ft.Column(
+            [
+                ft.Text("Предварительный счёт", size=13, color=MUTED),
+                ft.Text(score.label, size=32, weight=ft.FontWeight.BOLD, color=FG),
+                ft.Text(
+                    f"Самая вероятная клетка сетки · {percent}",
+                    size=12,
+                    color=MUTED,
+                ),
+                ft.Text(
+                    f"Ожидаемые голы λ {score.expected_home:.2f} : {score.expected_away:.2f} "
+                    "— среднее забитых и пропущенных за 5 матчей, без Elo, таблицы и травм.",
+                    size=12,
+                    color=MUTED,
+                ),
+            ],
+            spacing=6,
         ),
         bgcolor=CARD,
         border=glass_border(),

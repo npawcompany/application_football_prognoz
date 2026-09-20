@@ -97,10 +97,12 @@ class MatchService:
     def forecast(self, match: Match) -> MatchForecast:
         features = self._features.build(match)
         probabilities = self._predictor.predict(match, features)
-        explanation = self._explainer.explain(match, features, probabilities)
+        scoreline = self._predictor.preliminary_score(features)
+        explanation = self._explainer.explain(match, features, probabilities, scoreline)
         return MatchForecast(
             match=match,
             probabilities=probabilities,
             features=features,
             explanation=explanation,
+            scoreline=scoreline,
         )

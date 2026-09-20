@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 
 from football_prognoz.domain.match import Match, MatchStatus, Score
 from football_prognoz.domain.prediction import MatchFeatures
-from football_prognoz.models.predictor import Predictor, poisson_1x2
+from football_prognoz.models.predictor import (
+    Predictor,
+    goals_only_lambda,
+    poisson_1x2,
+    poisson_mode,
+)
 
 
 def _match() -> Match:
@@ -67,3 +72,36 @@ def test_stronger_attack_raises_home_probability() -> None:
 def test_poisson_grid_normalizes() -> None:
     probs = poisson_1x2(1.4, 1.1)
     assert abs(probs.home + probs.draw + probs.away - 1.0) < 1e-9
+
+
+def test_goals_only_lambda_averages_attack_and_defence() -> None:
+    lam_home, lam_away = goals_only_lambda(_features())
+    assert lam_home == (2.0 + 1.0) / 2
+    assert lam_away == (2.2 + 0.8) / 2
+
+
+def test_preliminary_score_ignores_elo() -> None:
+    base = Predictor().preliminary_score(_features(home_elo=1500.0, away_elo=1800.0))
+    shifted = Predictor().preliminary_score(_features(home_elo=1900.0, away_elo=1400.0))
+    assert base == shifted
+
+
+def test_preliminary_score_is_poisson_mode_not_ceil_floor() -> None:
+    # Heuristic ceil(1.2):floor(0.8) would print 2:0. Poisson modes are 1 and 0.
+    score = poisson_mode(1.2, 0.8)
+    assert score.label == "1:0"
+    assert 0 < score.probability < 0.25
+    assert score.expected_home == 1.2
+    assert score.expected_away == 0.8
+
+
+def test_stronger_home_attack_raises_expected_home_goals() -> None:
+    base = Predictor().preliminary_score(_features())
+    stronger = Predictor().preliminary_score(_features(home_recent_goals_for=3.4))
+    assert stronger.expected_home > base.expected_home
+
+
+def test_preliminary_score_is_deterministic() -> None:
+    first = Predictor().preliminary_score(_features())
+    second = Predictor().preliminary_score(_features())
+    assert first == second

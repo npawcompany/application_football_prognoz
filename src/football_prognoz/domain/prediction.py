@@ -28,6 +28,21 @@ class Probabilities:
 
 
 @dataclass(frozen=True)
+class Scoreline:
+    """Most likely exact score from historical goals only (no Elo / injuries)."""
+
+    home_goals: int
+    away_goals: int
+    probability: float
+    expected_home: float
+    expected_away: float
+
+    @property
+    def label(self) -> str:
+        return f"{self.home_goals}:{self.away_goals}"
+
+
+@dataclass(frozen=True)
 class MatchFeatures:
     home_form: str
     away_form: str
@@ -55,3 +70,4 @@ class MatchForecast:
     probabilities: Probabilities
     features: MatchFeatures
     explanation: Explanation | None
+    scoreline: Scoreline

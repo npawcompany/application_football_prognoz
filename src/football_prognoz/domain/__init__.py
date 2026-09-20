@@ -4,6 +4,7 @@ from football_prognoz.domain.prediction import (
     MatchFeatures,
     MatchForecast,
     Probabilities,
+    Scoreline,
 )
 from football_prognoz.domain.team import Competition, StandingRow, Team
 
@@ -16,6 +17,7 @@ __all__ = [
     "MatchStatus",
     "Probabilities",
     "Score",
+    "Scoreline",
     "StandingRow",
     "Team",
 ]
