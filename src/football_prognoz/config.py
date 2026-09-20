@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = "https://api.openai.com/v1"
     database_path: str = "data/cache/prognoz.db"
+    favorite_leagues: str = ""  # comma-separated codes e.g. PL,PD
+    prefetch_wait_on_start: bool = False
+    show_ai_block: bool = True
+    compact_fixtures: bool = False
 
     @property
     def db_path(self) -> Path:
@@ -27,6 +31,10 @@ class Settings(BaseSettings):
         if not path.is_absolute():
             path = ROOT_DIR / path
         return path
+
+    def favorite_codes(self) -> list[str]:
+        """Split/strip/upper favorite league codes; drop empty parts."""
+        return [part.strip().upper() for part in self.favorite_leagues.split(",") if part.strip()]
 
     @property
     def has_football_key(self) -> bool:
