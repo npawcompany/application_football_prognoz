@@ -1,0 +1,23 @@
+{
+  "count": 3,
+  "competitions": [
+    {
+      "id": 2021,
+      "name": "Premier League",
+      "code": "PL",
+      "emblem": "https://crests.football-data.org/PL.png"
+    },
+    {
+      "id": 2014,
+      "name": "Primera Division",
+      "code": "PD",
+      "emblem": null
+    },
+    {
+      "id": 9999,
+      "name": "Paid Only League",
+      "code": "XYZ",
+      "emblem": null
+    }
+  ]
+}

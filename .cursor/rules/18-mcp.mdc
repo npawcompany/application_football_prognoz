@@ -1,0 +1,12 @@
+---
+description: MCP merge — browsers, BoardUI, Figma; never overwrite unrelated servers
+alwaysApply: false
+---
+
+# MCP
+
+- Do not hand-edit `~/.cursor/mcp.json` blindly. Use `scripts/merge-mcp.ps1` (backup first) or merge by key.
+- Browsers: `15-browser/mcp.browsers.example.json`
+- BoardUI: `21-project-kits/mcp.project-kits.example.json`
+- Figma: existing user MCP / `figma-connect`
+- After merge: new Agent session. Do not print secret tokens.

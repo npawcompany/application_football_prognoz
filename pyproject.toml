@@ -1,0 +1,50 @@
+[project]
+name = "football-prognoz"
+version = "0.1.0"
+description = "Desktop football match forecast app for Windows and macOS"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "flet>=0.27.0,<0.81",
+    "httpx>=0.27.0",
+    "pandas>=2.2.0",
+    "scikit-learn>=1.5.0",
+    "pydantic-settings>=2.4.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+football-prognoz = "football_prognoz.main:run"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.flet]
+org = "com.footballprognoz"
+product = "Football Prognoz"
+company = "Football Prognoz"
+
+[tool.flet.app]
+path = "src"
+module = "football_prognoz.main"

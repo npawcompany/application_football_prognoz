@@ -216,3 +216,19 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# App cache and downloaded datasets
+data/cache/*
+!data/cache/.gitkeep
+data/csv/*
+!data/csv/.gitkeep
+*.db
+*.db-journal
+
+# Local clone of Apinyan-Gor/agents_ai (pack source; skills injected into .cursor/)
+/agents_ai/
+
+# Agent swarm / journal (local runtime)
+.agent-journal/
+.agent_status.md
+node_modules/

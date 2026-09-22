@@ -1,0 +1,18 @@
+---
+description: How to install/update/uninstall Desktop ai-agent-skills-pack when user asks
+alwaysApply: false
+---
+
+# Pack install protocol
+
+When the user asks to install, update, or remove **ai-agent-skills-pack**:
+
+1. Read `INSTALL.md` in the pack root.
+2. Run the matching script from `scripts/` for the OS (`install` / `update` / `uninstall`).
+3. Prefer dry-run first if the user is unsure. Then `scripts/doctor.ps1` (or `doctor.sh`).
+4. Fresh install defaults to **core**. Full catalog: `-Full`. Profiles: `-Profile web|python|automation|kits`.
+5. Never write to `~/.cursor/skills-cursor/`.
+6. Uninstall only via pack state file — do not wipe unrelated skills (including `ui-ux-pro-max` from `uipro`).
+7. Copy only directories that contain `SKILL.md`. Skip duplicates (lower `NN-` category wins).
+8. After install, inject into the **current user project** (not `~/.cursor/skills-cursor/`): `scripts/inject-project.ps1` / `inject-project.sh`.
+9. When shipping this pack: bump `VERSION`, regenerate `MANIFEST.json`, annotated git tag `vX.Y.Z`, push commit and tag.

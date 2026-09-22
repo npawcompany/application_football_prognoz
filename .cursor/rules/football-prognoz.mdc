@@ -1,0 +1,17 @@
+---
+description: Football Prognoz layering, docs, and secrets rules
+alwaysApply: true
+---
+
+# Football Prognoz
+
+- UI (`src/football_prognoz/ui/`) talks only to `services/` and `domain/`. Never call `httpx` or SQLite from a view.
+- New HTTP APIs: document in `docs/DATA_SOURCES.md` first (URL, limits, fields), then write a client in `data/`.
+- Do not replace the local 1X2 model with ChatGPT. The LLM only explains facts + probabilities.
+- Cache every network response in SQLite. Respect football-data.org 10 req/min.
+- Code and commit messages in English. UI strings in Russian.
+- Never commit `.env`, `data/cache/`, downloaded CSVs, or API keys. Do not log secrets.
+- Official docs first: `docs/DOC_STUDY.md`. Do not invent football-data.org v4 JSON fields.
+- Do not add LangChain/LlamaIndex. One direct OpenAI or Ollama call.
+- Show a UI disclaimer: statistical forecast, not betting advice.
+- Diploma text: [docs/VKR.md](docs/VKR.md). Formatting of the thesis follows TSU 2024 guidelines in [docs/vkr/oformlenie-tgu.md](docs/vkr/oformlenie-tgu.md). Do not replace Elo+Poisson with the 5-match ceil/floor heuristic; that baseline is documented in [docs/HEURISTIC_FIVE_MATCH.md](docs/HEURISTIC_FIVE_MATCH.md).

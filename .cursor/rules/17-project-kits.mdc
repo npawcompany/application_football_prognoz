@@ -1,0 +1,19 @@
+---
+description: External project kits Rybbit BoardUI witr Spec Kit UI/UX Pro Max ScrapeGraphAI
+alwaysApply: true
+---
+
+# Project kits
+
+Index skill: `project-kits`. Then **one** specialist. Setup is `references/setup.md` in that skill.
+
+| Names | Skill |
+|-------|--------|
+| Rybbit | `rybbit-analytics` |
+| BoardUI / npx boardui | `boardui` |
+| witr | `witr` |
+| spec-kit / specify / /speckit-* | `github-spec-kit` |
+| uipro / UI/UX Pro Max | `ui-ux-pro-max-setup` then generated `ui-ux-pro-max` |
+| scrapegraphai | `scrapegraph-ai` |
+
+Do not clone these repos into the pack. Do not inject kits into every project. Optional machine CLIs: `scripts/optional-kits.ps1`. Spec Kit needs Python ≥ 3.11 via `uv`.
