@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Diploma and naive forecast heuristic
 
-When writing thesis text, chapter plans, or comparing forecast methods, follow [docs/VKR.md](docs/VKR.md) and [docs/HEURISTIC_FIVE_MATCH.md](docs/HEURISTIC_FIVE_MATCH.md).
+When writing thesis text, chapter plans, or comparing forecast methods, follow [docs/VKR.md](docs/VKR.md) and [docs/HEURISTIC_FIVE_MATCH.md](docs/HEURISTIC_FIVE_MATCH.md). Page layout, headings, tables, figures, formulas, citations, and appendices follow [docs/vkr/oformlenie-tgu.md](docs/vkr/oformlenie-tgu.md) (TSU methodological guidelines, 2024). The main text uses chapters, so the contents element is «Оглавление».
 
 - Title: desktop statistical 1X2 app, not a betting shop.
 - LLM never picks the winner; it only explains computed probabilities.
