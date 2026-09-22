@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 import time
 from datetime import UTC, datetime
@@ -8,8 +9,9 @@ from typing import Any
 import httpx
 
 from football_prognoz.data import FREE_CODES
-from football_prognoz.domain.match import Match, MatchStatus, Score
-from football_prognoz.domain.team import Competition, StandingRow, Team
+from football_prognoz.domain.country import flag_code
+from football_prognoz.domain.match import Match, MatchLineup, MatchStatus, Score
+from football_prognoz.domain.team import Competition, Person, StandingRow, Team, TeamRoster
 
 API_BASE = "https://api.football-data.org/v4"
 
@@ -71,6 +73,116 @@ def match_from_api(payload: dict[str, Any], competition_code: str) -> Match:
         ),
         home_crest=home.get("crest"),
         away_crest=away.get("crest"),
+        venue=str(payload["venue"]).strip() if payload.get("venue") else None,
+    )
+
+
+def parse_city(address: str | None) -> str | None:
+    """Best-effort city from Team.address. v4 has no dedicated city field."""
+    if not address:
+        return None
+    text = re.sub(r"\b[A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{2}\b", " ", address)
+    text = re.sub(r"\b\d{4,6}\b", " ", text)
+    parts = [chunk.strip(" ,") for chunk in re.split(r"[,/]", text) if chunk.strip()]
+    if not parts:
+        return None
+    if len(parts) >= 2:
+        candidate = parts[-1]
+    else:
+        tokens = [token for token in parts[0].split() if token and not token.isdigit()]
+        candidate = tokens[-1] if tokens else ""
+    candidate = candidate.strip(" ,.")
+    return candidate or None
+
+
+def _person_ids(raw: object) -> tuple[int, ...]:
+    ids: list[int] = []
+    if not isinstance(raw, list):
+        return ()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        person_id = int(item.get("id") or 0)
+        if person_id > 0:
+            ids.append(person_id)
+    return tuple(ids)
+
+
+def lineup_from_api(payload: dict[str, Any]) -> MatchLineup:
+    home = payload.get("homeTeam") or {}
+    away = payload.get("awayTeam") or {}
+    return MatchLineup(
+        home_start=_person_ids(home.get("lineup")),
+        home_bench=_person_ids(home.get("bench")),
+        away_start=_person_ids(away.get("lineup")),
+        away_bench=_person_ids(away.get("bench")),
+    )
+
+
+def _int_or_none(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _person_from_api(payload: dict[str, Any], *, default_role: str) -> Person | None:
+    person_id = int(payload.get("id") or 0)
+    name = str(payload.get("name") or "").strip()
+    if person_id <= 0 or not name:
+        return None
+    contract = payload.get("contract") or {}
+    until = contract.get("until") if isinstance(contract, dict) else None
+    role = str(payload.get("role") or default_role)
+    return Person(
+        id=person_id,
+        name=name,
+        position=str(payload["position"]) if payload.get("position") else None,
+        nationality=str(payload["nationality"]) if payload.get("nationality") else None,
+        date_of_birth=str(payload["dateOfBirth"]) if payload.get("dateOfBirth") else None,
+        role=role,
+        shirt_number=_int_or_none(payload.get("shirtNumber")),
+        contract_until=str(until) if until else None,
+    )
+
+
+def roster_from_api(payload: dict[str, Any]) -> TeamRoster:
+    team_id = int(payload.get("id") or 0)
+    coach_raw = payload.get("coach")
+    coach = (
+        _person_from_api(coach_raw, default_role="COACH")
+        if isinstance(coach_raw, dict)
+        else None
+    )
+    players: list[Person] = []
+    for raw in payload.get("squad") or []:
+        if not isinstance(raw, dict):
+            continue
+        person = _person_from_api(raw, default_role="PLAYER")
+        if person is None:
+            continue
+        if person.role.upper() == "COACH" and coach is None:
+            coach = person
+            continue
+        players.append(person)
+    area = payload.get("area") or {}
+    country = str(area["name"]).strip() if isinstance(area, dict) and area.get("name") else None
+    iso3 = str(area["code"]).strip() if isinstance(area, dict) and area.get("code") else None
+    address = str(payload["address"]).strip() if payload.get("address") else None
+    venue = str(payload["venue"]).strip() if payload.get("venue") else None
+    return TeamRoster(
+        team_id=team_id,
+        team_name=str(payload.get("name") or "Unknown"),
+        crest=payload.get("crest"),
+        coach=coach,
+        squad=tuple(players),
+        venue=venue,
+        city=parse_city(address),
+        country=country,
+        country_code=flag_code(country, iso3=iso3),
     )
 
 
@@ -187,6 +299,16 @@ class FootballDataOrgClient:
             )
         teams.sort(key=lambda t: t.name)
         return teams
+
+    def get_team(self, team_id: int) -> TeamRoster:
+        payload = self._get(f"/teams/{team_id}")
+        return roster_from_api(payload)
+
+    def get_match(self, match_id: int) -> tuple[Match, MatchLineup]:
+        payload = self._get(f"/matches/{match_id}")
+        competition = payload.get("competition") or {}
+        code = str(competition.get("code") or "")
+        return match_from_api(payload, code), lineup_from_api(payload)
 
     def list_standings(self, competition_code: str) -> list[StandingRow]:
         payload = self._get(f"/competitions/{competition_code}/standings")

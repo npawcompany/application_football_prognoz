@@ -2,6 +2,7 @@ from football_prognoz.ui.theme import (
     BREAKPOINT_MEDIUM,
     BREAKPOINT_SPLIT,
     BREAKPOINT_WIDE,
+    fact_columns,
     fact_runs,
     grid_extent,
     league_runs,
@@ -35,6 +36,13 @@ def test_fact_runs() -> None:
     assert fact_runs(1440) == 4
     assert fact_runs(1100) == 2
     assert fact_runs(800) == 1
+
+
+def test_fact_columns_fits_split_pane() -> None:
+    assert fact_columns(1440) == 4
+    assert fact_columns(720) == 2
+    assert fact_columns(400) == 2
+    assert fact_columns(399) == 1
 
 
 def test_split_threshold() -> None:

@@ -34,6 +34,12 @@ def test_favorite_codes_drops_empty() -> None:
     assert Settings(favorite_leagues="bl1").favorite_codes() == ["BL1"]
 
 
+def test_favorite_team_ids_parses_unique_ints() -> None:
+    settings = Settings(favorite_teams=" 57, 57, abc, 64 ,")
+    assert settings.favorite_team_ids() == [57, 64]
+    assert Settings(favorite_teams="").favorite_team_ids() == []
+
+
 def test_current_season_year_flips_in_july() -> None:
     assert current_season_year(datetime(2026, 6, 1, tzinfo=UTC)) == 2025
     assert current_season_year(datetime(2026, 7, 1, tzinfo=UTC)) == 2026

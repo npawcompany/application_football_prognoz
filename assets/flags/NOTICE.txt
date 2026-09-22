@@ -1,0 +1,2 @@
+SVG flags from https://github.com/lipis/flag-icons v7.5.0 (MIT).
+Regenerate: python scripts/sync_flags.py

@@ -4,9 +4,12 @@ from collections.abc import Callable
 
 import flet as ft
 
+from football_prognoz.domain.country import competition_country
 from football_prognoz.domain.team import Competition
 from football_prognoz.ui.components.crest import crest_image
+from football_prognoz.ui.components.flag import country_label
 from football_prognoz.ui.components.team_label import team_label
+from football_prognoz.ui.motion import apply_motion
 from football_prognoz.ui.theme import ACCENT, CARD, FG, SURFACE, glass_border
 
 
@@ -16,38 +19,53 @@ def league_card(
     *,
     selected: bool = False,
 ) -> ft.Control:
-    return ft.Container(
-        content=ft.Row(
-            [
-                crest_image(item.emblem, label=item.name, size=32, code=item.code),
-                ft.Column(
-                    [
-                        ft.Row(
-                            [team_label(item.name, size=14)],
-                            spacing=0,
-                            expand=True,
+    country = competition_country(item.code)
+    subtitle: list[ft.Control] = [ft.Text("Календарь", size=11, color=ACCENT)]
+    if country:
+        subtitle.append(country_label(country, size=11))
+    return apply_motion(
+        ft.Container(
+            content=ft.Row(
+                [
+                    crest_image(item.emblem, label=item.name, size=32, code=item.code),
+                    ft.Column(
+                        [
+                            ft.Row(
+                                [team_label(item.name, size=14)],
+                                spacing=0,
+                                expand=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                            ft.Row(
+                                subtitle,
+                                spacing=8,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ],
+                        spacing=2,
+                        expand=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                    ),
+                    ft.Container(
+                        content=ft.Text(
+                            item.code, size=11, weight=ft.FontWeight.W_600, color=FG
                         ),
-                        ft.Text("Календарь", size=11, color=ACCENT),
-                    ],
-                    spacing=2,
-                    expand=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                ),
-                ft.Container(
-                    content=ft.Text(item.code, size=11, weight=ft.FontWeight.W_600, color=FG),
-                    bgcolor=SURFACE,
-                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                    border_radius=6,
-                ),
-            ],
-            spacing=10,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        bgcolor=SURFACE,
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                        border_radius=6,
+                    ),
+                ],
+                spacing=10,
+                expand=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=CARD,
+            border=ft.Border.all(1, ACCENT) if selected else glass_border(),
+            border_radius=12,
+            padding=10,
+            ink=True,
+            on_click=lambda _e, current=item: on_select(current),
+            tooltip=item.name,
         ),
-        bgcolor=CARD,
-        border=ft.Border.all(1, ACCENT) if selected else glass_border(),
-        border_radius=12,
-        padding=10,
-        ink=True,
-        on_click=lambda _e, current=item: on_select(current),
-        tooltip=item.name,
+        interactive=True,
     )

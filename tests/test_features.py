@@ -6,7 +6,11 @@ from pathlib import Path
 from football_prognoz.ai.explainer import Explainer
 from football_prognoz.data import FREE_COMPETITIONS
 from football_prognoz.data.csv_loader import load_csv
-from football_prognoz.data.football_data_org import FootballDataError, match_from_api
+from football_prognoz.data.football_data_org import (
+    FootballDataError,
+    match_from_api,
+    roster_from_api,
+)
 from football_prognoz.data.store import SQLiteStore
 from football_prognoz.domain.match import MatchStatus
 from football_prognoz.domain.prediction import Explanation
@@ -56,6 +60,9 @@ def test_features_from_cached_history(
     assert features.home_position == 2
     assert features.away_position == 1
     assert "очных" in features.h2h_summary or "Последние" in features.h2h_summary
+    assert len(features.h2h_matches) <= 5
+    assert features.home_standing is not None
+    assert features.away_standing is not None
 
 
 def test_csv_import_into_store(tmp_path: Path, sample_csv: Path) -> None:
@@ -85,6 +92,18 @@ def test_clear_all_keeps_schema_and_empty_list(tmp_path: Path) -> None:
     assert store.fetched_at("competitions") is None
     store.upsert_competitions([Competition(2014, "PD", "La Liga")])
     assert [row.code for row in store.list_competitions()] == ["PD"]
+
+
+def test_list_cached_teams_unions_matches_and_standings(
+    tmp_path: Path, matches_payload: dict, standings_payload: dict
+) -> None:
+    store = _store_with_history(tmp_path, matches_payload, standings_payload)
+    teams = store.list_cached_teams()
+    names = {team.name for team in teams}
+    ids = [team.id for team in teams]
+    assert len(ids) == len(set(ids))
+    assert names
+    assert all(team.name for team in teams)
 
 
 def test_elo_reused_when_history_fingerprint_unchanged(
@@ -263,3 +282,41 @@ def test_forecast_explain_false_skips_llm(
     assert explainer.calls == 1
     assert filled.explanation is not None
     assert filled.probabilities == forecast.probabilities
+
+
+class _RosterClient(_FakeClient):
+    def __init__(self, payload: dict) -> None:
+        super().__init__()
+        self.payload = payload
+        self.team_ids: list[int] = []
+
+    def get_team(self, team_id: int):
+        self.team_ids.append(team_id)
+        data = dict(self.payload)
+        data["id"] = team_id
+        return roster_from_api(data)
+
+
+def test_forecast_attaches_cached_rosters(
+    tmp_path: Path, matches_payload: dict, standings_payload: dict, team_payload: dict
+) -> None:
+    store = _store_with_history(tmp_path, matches_payload, standings_payload)
+    client = _RosterClient(team_payload)
+    service = MatchService(
+        client=client,
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(None, "test-model"),
+    )
+    upcoming = store.get_match(201)
+    assert upcoming is not None
+    forecast = service.forecast(upcoming, explain=False)
+    assert client.team_ids == [upcoming.home_id, upcoming.away_id]
+    assert forecast.home_roster is not None
+    assert forecast.home_roster.coach is not None
+    assert forecast.home_roster.coach.name == "Mikel Arteta"
+    again = service.forecast(upcoming, explain=False)
+    assert client.team_ids == [upcoming.home_id, upcoming.away_id]
+    assert again.home_roster is not None
+    assert again.home_roster.squad == forecast.home_roster.squad

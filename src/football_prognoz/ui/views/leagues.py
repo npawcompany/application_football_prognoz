@@ -8,8 +8,9 @@ from football_prognoz.domain.team import Competition
 from football_prognoz.ui.components.filter_bar import filter_bar
 from football_prognoz.ui.components.league_card import league_card
 from football_prognoz.ui.components.section_header import section_header
+from football_prognoz.ui.motion import with_cursor
 from football_prognoz.ui.runtime import error_banner, info_banner
-from football_prognoz.ui.theme import LEAGUE_ASPECT_RATIO, grid_extent
+from football_prognoz.ui.theme import BG, LEAGUE_ASPECT_RATIO, grid_extent
 
 
 def leagues_view(
@@ -30,11 +31,15 @@ def leagues_view(
     header = section_header(
         "Лиги",
         "Бесплатный план football-data.org: 12 соревнований.",
-        trailing=ft.IconButton(
-            icon=ft.Icons.REFRESH,
-            tooltip="Обновить",
-            on_click=lambda _e: on_refresh(),
+        trailing=with_cursor(
+            ft.IconButton(
+                icon=ft.Icons.REFRESH,
+                tooltip="Обновить",
+                on_click=lambda _e: on_refresh(),
+            ),
+            interactive=True,
         ),
+        window_width=window_width,
     )
     body: list[ft.Control] = [header]
     if on_query is not None:
@@ -73,7 +78,10 @@ def leagues_view(
         body.append(
             ft.GridView(
                 controls=[
-                    league_card(item, on_select, selected=item.code == selected_code)
+                    with_cursor(
+                        league_card(item, on_select, selected=item.code == selected_code),
+                        interactive=True,
+                    )
                     for item in competitions
                 ],
                 expand=True,
@@ -84,4 +92,8 @@ def leagues_view(
                 padding=0,
             )
         )
-    return ft.Column(body, spacing=12, expand=True)
+    return ft.Container(
+        content=ft.Column(body, spacing=12, expand=True),
+        expand=True,
+        bgcolor=BG,
+    )

@@ -31,6 +31,11 @@ def sample_csv() -> Path:
 
 
 @pytest.fixture
+def team_payload() -> dict:
+    return json.loads((SAMPLES / "team.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
 def teams_payload() -> dict:
     return {
         "count": 2,

@@ -14,15 +14,18 @@ def team_label(
     align: ft.TextAlign = ft.TextAlign.LEFT,
     weight: ft.FontWeight = ft.FontWeight.W_600,
     color: str = FG,
+    expand: bool = True,
+    style: ft.TextStyle | None = None,
 ) -> ft.Text:
     return ft.Text(
         text,
         size=size,
         weight=weight,
         color=color,
-        expand=True,
+        expand=expand,
         max_lines=1,
         overflow=ft.TextOverflow.ELLIPSIS,
         text_align=align,
         tooltip=text,
+        style=style,
     )

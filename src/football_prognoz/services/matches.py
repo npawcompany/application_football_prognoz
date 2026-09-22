@@ -12,9 +12,9 @@ from football_prognoz.data.store import (
     TTL_SCHEDULED_HOURS,
     SQLiteStore,
 )
-from football_prognoz.domain.match import Match
+from football_prognoz.domain.match import Match, MatchLineup
 from football_prognoz.domain.prediction import MatchForecast
-from football_prognoz.domain.team import Competition, StandingRow
+from football_prognoz.domain.team import Competition, StandingRow, Team, TeamRoster
 from football_prognoz.models.predictor import Predictor
 from football_prognoz.services.features import FeatureService
 
@@ -124,22 +124,83 @@ class MatchService:
     def standings(self, code: str) -> list[StandingRow]:
         return self._store.list_standings(code)
 
+    def cached_teams(self) -> list[Team]:
+        """Teams already in SQLite. Settings combobox must not hit the API."""
+        return self._store.list_cached_teams()
+
     def get_match(self, match_id: int) -> Match | None:
         return self._store.get_match(match_id)
+
+    def _roster_for(
+        self,
+        team_id: int,
+        *,
+        fallback_name: str,
+        fallback_crest: str | None,
+    ) -> TeamRoster | None:
+        if team_id <= 0:
+            return None
+        cache_key = f"team:{team_id}"
+        cached = self._store.get_roster(team_id)
+        if cached and self._store.is_fresh(cache_key, TTL_FINISHED_HOURS):
+            return cached
+        get_team = getattr(self._client, "get_team", None)
+        if not callable(get_team):
+            return cached
+        try:
+            roster = get_team(team_id)
+        except FootballDataError as exc:
+            if cached is not None:
+                return cached
+            if exc.status_code == 403:
+                empty = TeamRoster(team_id, fallback_name, fallback_crest, None, ())
+                self._store.upsert_roster(empty)
+                return empty
+            return None
+        self._store.upsert_roster(roster)
+        return roster
+
+    def _lineup_for(self, match: Match) -> MatchLineup | None:
+        cache_key = f"match:{match.id}"
+        cached = self._store.get_lineup(match.id)
+        if cached and self._store.is_fresh(cache_key, TTL_SCHEDULED_HOURS):
+            return cached
+        get_match = getattr(self._client, "get_match", None)
+        if not callable(get_match):
+            return cached
+        try:
+            detailed, lineup = get_match(match.id)
+        except FootballDataError:
+            return cached
+        if detailed.venue and not match.venue:
+            self._store.upsert_matches([replace(match, venue=detailed.venue)])
+        self._store.upsert_lineup(match.id, lineup)
+        return lineup
 
     def forecast(self, match: Match, *, explain: bool = True) -> MatchForecast:
         features = self._features.build(match)
         probabilities = self._predictor.predict(match, features)
         scoreline = self._predictor.preliminary_score(features)
+        home_roster = self._roster_for(
+            match.home_id, fallback_name=match.home_name, fallback_crest=match.home_crest
+        )
+        away_roster = self._roster_for(
+            match.away_id, fallback_name=match.away_name, fallback_crest=match.away_crest
+        )
+        lineup = self._lineup_for(match)
+        stored = self._store.get_match(match.id) or match
         explanation = None
         if explain:
-            explanation = self._explainer.explain(match, features, probabilities, scoreline)
+            explanation = self._explainer.explain(stored, features, probabilities, scoreline)
         return MatchForecast(
-            match=match,
+            match=stored,
             probabilities=probabilities,
             features=features,
             explanation=explanation,
             scoreline=scoreline,
+            home_roster=home_roster,
+            away_roster=away_roster,
+            lineup=lineup,
         )
 
     def explain_forecast(self, forecast: MatchForecast) -> MatchForecast:

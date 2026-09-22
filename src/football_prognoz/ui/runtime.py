@@ -214,9 +214,10 @@ def error_banner(text: str) -> ft.Control:
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.ERROR_OUTLINE, color=FG, size=16),
-                ft.Text(text, color=FG, expand=True, size=13),
+                ft.Text(text, color=FG, size=13, max_lines=4),
             ],
             spacing=8,
+            wrap=True,
         ),
         bgcolor=AWAY,
         padding=ft.Padding.symmetric(horizontal=10, vertical=8),
@@ -226,16 +227,17 @@ def error_banner(text: str) -> ft.Control:
 
 
 def info_banner(text: str, action_hint: str | None = None) -> ft.Control:
-    lines = [ft.Text(text, color=FG, expand=True, size=13)]
+    lines = [ft.Text(text, color=FG, size=13, max_lines=4)]
     if action_hint:
-        lines.append(ft.Text(action_hint, size=11, color=MUTED))
+        lines.append(ft.Text(action_hint, size=11, color=MUTED, max_lines=2))
     return ft.Container(
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.INFO_OUTLINE, color=DRAW, size=16),
-                ft.Column(lines, spacing=2, expand=True),
+                ft.Column(lines, spacing=2),
             ],
             spacing=8,
+            wrap=True,
         ),
         bgcolor=CARD,
         border=glass_border(),

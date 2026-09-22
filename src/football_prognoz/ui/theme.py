@@ -36,24 +36,36 @@ def glass_border() -> ft.Border:
     return ft.Border.all(1, ft.Colors.with_opacity(0.18, ft.Colors.WHITE))
 
 
-def apply_page_fonts(page: ft.Page) -> None:
-    fonts = getattr(page, "fonts", None)
-    if isinstance(fonts, dict):
-        return
-    try:
-        page.fonts = {
-            "Fira Sans": "https://github.com/google/fonts/raw/main/ofl/firasans/FiraSans-Regular.ttf",
-            "Fira Code": "https://github.com/google/fonts/raw/main/ofl/firacode/FiraCode%5Bwght%5D.ttf",
-        }
-    except Exception:  # noqa: BLE001 — optional web fonts; system UI is fine
-        pass
+def type_scale(width: int) -> float:
+    """Larger window → larger type. 800px ≈ 0.90, 1440px ≈ 1.04, 1600px ≈ 1.08."""
+    clamped = min(max(int(width), WINDOW_MIN[0]), 1600)
+    t = (clamped - WINDOW_MIN[0]) / (1600 - WINDOW_MIN[0])
+    return 0.90 + t * 0.18
+
+
+def scaled(size: int, width: int) -> int:
+    return max(10, round(size * type_scale(width)))
 
 
 def configure_window(page: ft.Page) -> None:
-    apply_page_fonts(page)
     page.bgcolor = BG
     page.theme_mode = ft.ThemeMode.DARK
-    page.theme = ft.Theme(color_scheme_seed=ACCENT, font_family="Fira Sans")
+    page.theme = ft.Theme(
+        color_scheme_seed=ACCENT,
+        color_scheme=ft.ColorScheme(
+            primary=ACCENT,
+            on_primary="#0F172A",
+            surface=BG,
+            on_surface=FG,
+            surface_container=CARD,
+            surface_container_low=CARD,
+            surface_container_lowest=BG,
+            surface_container_high=SURFACE,
+            surface_container_highest=SURFACE,
+            secondary=DRAW,
+            error=AWAY,
+        ),
+    )
     page.padding = 0
     win = getattr(page, "window", None)
     if win is not None and hasattr(win, "width"):
@@ -92,6 +104,15 @@ def use_split(width: int) -> bool:
     return width >= BREAKPOINT_SPLIT
 
 
+def use_stacked_match(width: int) -> bool:
+    """Stack match-card rows when the window or a split pane is below medium."""
+    if width < BREAKPOINT_MEDIUM:
+        return True
+    if use_split(width) and width // 2 < BREAKPOINT_MEDIUM:
+        return True
+    return False
+
+
 def grid_extent(width: int) -> int:
     """League tile max width: 4 / 2 / 1 columns as the OS window shrinks."""
     if width >= BREAKPOINT_WIDE:
@@ -126,6 +147,15 @@ def fact_runs(width: int) -> int:
     if width >= BREAKPOINT_WIDE:
         return 4
     if width >= BREAKPOINT_MEDIUM:
+        return 2
+    return 1
+
+
+def fact_columns(width: int) -> int:
+    """Equal-width context tiles. A split forecast pane is often <980px but still fits two."""
+    if width >= BREAKPOINT_WIDE:
+        return 4
+    if width >= 400:
         return 2
     return 1
 

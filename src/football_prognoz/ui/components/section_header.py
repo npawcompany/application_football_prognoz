@@ -4,23 +4,24 @@ from __future__ import annotations
 
 import flet as ft
 
-from football_prognoz.ui.theme import FG, MUTED
+from football_prognoz.ui.theme import FG, MUTED, scaled
 
 
 def section_header(
     title: str,
     subtitle: str | None = None,
     trailing: ft.Control | None = None,
+    *,
+    window_width: int = 1440,
 ) -> ft.Control:
     lines: list[ft.Control] = [
         ft.Row(
             [
                 ft.Text(
                     title,
-                    size=22,
+                    size=scaled(22, window_width),
                     weight=ft.FontWeight.BOLD,
                     color=FG,
-                    font_family="Fira Code",
                     max_lines=1,
                     overflow=ft.TextOverflow.ELLIPSIS,
                     expand=True,
@@ -34,7 +35,7 @@ def section_header(
         lines.append(
             ft.Text(
                 subtitle,
-                size=12,
+                size=scaled(12, window_width),
                 color=MUTED,
                 max_lines=1,
                 overflow=ft.TextOverflow.ELLIPSIS,

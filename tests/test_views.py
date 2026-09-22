@@ -13,6 +13,7 @@ from football_prognoz.domain.prediction import (
     Scoreline,
 )
 from football_prognoz.domain.team import Competition
+from football_prognoz.services.filters import FixtureQuery, MatchStatusFilter, PageResult
 from football_prognoz.ui.views.fixtures import fixtures_view
 from football_prognoz.ui.views.leagues import leagues_view
 from football_prognoz.ui.views.match_detail import match_detail_view
@@ -75,7 +76,7 @@ def _forecast() -> MatchForecast:
             away_form="WDWWL",
             home_elo=1600.0,
             away_elo=1580.0,
-            h2h_summary="Нет очных встреч в кэше",
+            h2h_summary="Нет очных встреч",
             home_position=2,
             away_position=1,
             home_recent_goals_for=2.0,
@@ -174,41 +175,55 @@ def test_leagues_view_renders_given_list_without_filtering() -> None:
     assert "Bundesliga" in blob
 
 
-def test_fixtures_view_shows_team_filter_when_on_team_query() -> None:
-    view = _fixtures(on_team_query=lambda _q: None)
+def test_fixtures_view_shows_filter_panel_when_on_query() -> None:
+    view = _fixtures(query=FixtureQuery(), on_query=lambda _q: None)
     fields = [node for node in _walk(view) if isinstance(node, ft.TextField)]
-    assert fields
-    assert fields[0].label == "Команда"
+    labels = {field.label for field in fields}
+    assert "Команда" in labels
     blob = _blob(view)
-    assert "Команда" in blob
     assert "Предстоящие" in blob
-    assert "Все матчи" in blob
+    assert "Живые" in blob
+    assert "Сбросить" in blob
 
 
-def test_fixtures_view_hides_filter_bar_without_on_team_query() -> None:
+def test_fixtures_view_hides_filter_panel_without_on_query() -> None:
     view = _fixtures()
     fields = [node for node in _walk(view) if isinstance(node, ft.TextField)]
     assert fields == []
     assert "Команда" not in _blob(view)
 
 
-def test_fixtures_view_upcoming_chips_call_callback() -> None:
-    clicks: list[bool] = []
+def test_fixtures_view_status_chips_call_on_query() -> None:
+    updates: list[FixtureQuery] = []
     view = _fixtures(
-        on_team_query=lambda _q: None,
-        upcoming_only=True,
-        on_upcoming_only=clicks.append,
+        query=FixtureQuery(),
+        on_query=updates.append,
     )
     chips = [
         node
         for node in _walk(view)
         if isinstance(node, ft.Container) and isinstance(node.content, ft.Text)
     ]
-    all_matches = next(chip for chip in chips if chip.content.value == "Все матчи")
-    upcoming = next(chip for chip in chips if chip.content.value == "Предстоящие")
-    all_matches.on_click(None)
-    upcoming.on_click(None)
-    assert clicks == [False, True]
+    live = next(chip for chip in chips if chip.content.value == "Живые")
+    live.on_click(None)
+    assert updates
+    assert updates[0].status is MatchStatusFilter.LIVE
+    assert updates[0].page == 0
+
+
+def test_fixtures_view_renders_page_slice_and_pager() -> None:
+    matches = [_match(), _match()]
+    page = PageResult(items=matches[:1], total=40, page=0, page_size=25)
+    view = _fixtures(
+        matches,
+        query=FixtureQuery(),
+        page_result=page,
+        on_query=lambda _q: None,
+    )
+    blob = _blob(view)
+    assert "1–25 из 40" in blob or "1–1 из 40" in blob
+    assert "Назад" in blob
+    assert "Вперёд" in blob
 
 
 def test_match_detail_hides_ai_block_when_disabled() -> None:
@@ -251,4 +266,5 @@ def test_settings_view_builds_from_settings_form() -> None:
     )
     blob = _blob(view)
     assert "Любимые лиги" in blob
+    assert "Любимые команды" in blob
     assert "Очистить кэш" in blob

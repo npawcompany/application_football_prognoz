@@ -21,9 +21,11 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     database_path: str = "data/cache/prognoz.db"
     favorite_leagues: str = ""  # comma-separated codes e.g. PL,PD
+    favorite_teams: str = ""  # comma-separated football-data.org team ids
     prefetch_wait_on_start: bool = False
     show_ai_block: bool = True
     compact_fixtures: bool = False
+    system_notifications: bool = False
 
     @property
     def db_path(self) -> Path:
@@ -35,6 +37,21 @@ class Settings(BaseSettings):
     def favorite_codes(self) -> list[str]:
         """Split/strip/upper favorite league codes; drop empty parts."""
         return [part.strip().upper() for part in self.favorite_leagues.split(",") if part.strip()]
+
+    def favorite_team_ids(self) -> list[int]:
+        """Parse favorite team ids from the comma-separated FAVORITE_TEAMS value."""
+        ids: list[int] = []
+        seen: set[int] = set()
+        for part in self.favorite_teams.split(","):
+            text = part.strip()
+            if not text.isdigit():
+                continue
+            team_id = int(text)
+            if team_id in seen:
+                continue
+            seen.add(team_id)
+            ids.append(team_id)
+        return ids
 
     @property
     def has_football_key(self) -> bool:

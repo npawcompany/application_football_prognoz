@@ -81,6 +81,9 @@ class FeatureService:
                 away_games[-self._form_n :], match.away_id, False
             ),
             sample_matches=len(history),
+            h2h_matches=tuple(h2h),
+            home_standing=home_row,
+            away_standing=away_row,
         )
 
     def _form(self, games: list[Match], team_id: int) -> str:
@@ -89,7 +92,7 @@ class FeatureService:
 
     def _h2h_summary(self, games: list[Match], match: Match) -> str:
         if not games:
-            return "Нет очных встреч в кэше"
+            return "Нет очных встреч"
         counts: dict[str, int] = defaultdict(int)
         for item in games:
             if item.score.winner == "DRAW" or (

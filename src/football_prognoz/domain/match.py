@@ -53,7 +53,23 @@ class Match:
     score: Score
     home_crest: str | None = None
     away_crest: str | None = None
+    venue: str | None = None
 
     @property
     def label(self) -> str:
         return f"{self.home_name} — {self.away_name}"
+
+
+@dataclass(frozen=True)
+class MatchLineup:
+    """Starting XI and bench person ids from GET /v4/matches/{id}."""
+
+    home_start: tuple[int, ...] = ()
+    home_bench: tuple[int, ...] = ()
+    away_start: tuple[int, ...] = ()
+    away_bench: tuple[int, ...] = ()
+
+    def is_empty(self) -> bool:
+        return not (
+            self.home_start or self.home_bench or self.away_start or self.away_bench
+        )

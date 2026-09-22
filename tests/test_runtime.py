@@ -163,21 +163,20 @@ def test_debounce_coalesces_same_key() -> None:
 
 def test_splash_view_indeterminate_and_determinate() -> None:
     boot = splash_view("Лиги")
-    assert boot.bgcolor == BG
-    assert boot.alignment == ft.Alignment.CENTER
-    column = boot.content
-    title = column.controls[0]
-    subtitle = column.controls[1]
-    ring = column.controls[2]
-    status = column.controls[3]
+    box = boot.content if hasattr(boot, "content") else boot
+    assert box.bgcolor == BG
+    assert box.alignment == ft.Alignment.CENTER
+    column = box.content
+    mark, title, subtitle, ring, status = column.controls
     assert title.value == "Football Prognoz"
-    assert title.font_family == "Fira Code"
     assert title.color == FG
     assert subtitle.value == "Загрузка данных…"
     assert ring.value is None
     assert ring.color == ACCENT
     assert status.value == "Лиги"
     filled = splash_view("Матчи", fraction=0.4)
-    assert filled.content.controls[2].value == 0.4
+    filled_box = filled.content if hasattr(filled, "content") else filled
+    assert filled_box.content.controls[3].value == 0.4
     overflow = splash_view("Матчи", fraction=1.5)
-    assert overflow.content.controls[2].value is None
+    overflow_box = overflow.content if hasattr(overflow, "content") else overflow
+    assert overflow_box.content.controls[3].value is None

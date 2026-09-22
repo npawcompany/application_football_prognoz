@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from football_prognoz.domain.match import Match
+from football_prognoz.domain.match import Match, MatchLineup
+from football_prognoz.domain.team import StandingRow, TeamRoster
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,14 @@ class Scoreline:
     def label(self) -> str:
         return f"{self.home_goals}:{self.away_goals}"
 
+    @property
+    def winner_side(self) -> str | None:
+        if self.home_goals > self.away_goals:
+            return "home"
+        if self.away_goals > self.home_goals:
+            return "away"
+        return None
+
 
 @dataclass(frozen=True)
 class MatchFeatures:
@@ -56,6 +65,9 @@ class MatchFeatures:
     away_recent_goals_for: float
     away_recent_goals_against: float
     sample_matches: int
+    h2h_matches: tuple[Match, ...] = ()
+    home_standing: StandingRow | None = None
+    away_standing: StandingRow | None = None
 
 
 @dataclass(frozen=True)
@@ -71,3 +83,6 @@ class MatchForecast:
     features: MatchFeatures
     explanation: Explanation | None
     scoreline: Scoreline
+    home_roster: TeamRoster | None = None
+    away_roster: TeamRoster | None = None
+    lineup: MatchLineup | None = None

@@ -12,7 +12,8 @@ from football_prognoz.domain.prediction import (
     Probabilities,
     Scoreline,
 )
-from football_prognoz.domain.team import Competition
+from football_prognoz.domain.team import Competition, Team
+from football_prognoz.services.filters import FixtureQuery, MatchStatusFilter
 from football_prognoz.ui.app import FootballApp
 
 
@@ -29,6 +30,7 @@ class FakePage:
 
     def __init__(self) -> None:
         self.overlay: list = []
+        self.dialogs: list = []
         self.controls: list = []
         self.updates = 0
         self.scheduled: list = []
@@ -53,8 +55,18 @@ class FakePage:
     def add(self, *controls: object) -> None:
         self.controls.extend(controls)
 
+    def clean(self) -> None:
+        self.controls.clear()
+
     def update(self) -> None:
         self.updates += 1
+
+    def show_dialog(self, dialog: object) -> None:
+        self.dialogs.append(dialog)
+
+    def pop_dialog(self) -> None:
+        if self.dialogs:
+            self.dialogs.pop()
 
     def run_task(self, fn, *args, **kwargs):
         handle = _Handle()
@@ -80,6 +92,13 @@ class FakeMatchService:
         self.clear_calls = 0
         self.prefetch_calls: list[str] = []
         self.ping_calls = 0
+
+    def cached_teams(self) -> list[Team]:
+        return [
+            Team(id=64, name="Liverpool"),
+            Team(id=57, name="Arsenal"),
+            Team(id=5, name="Bayern"),
+        ]
 
     def cached_competitions(self) -> list[Competition]:
         self.cached_calls += 1
@@ -158,7 +177,7 @@ def _forecast_for(match: Match) -> MatchForecast:
             away_form="WDWWL",
             home_elo=1600.0,
             away_elo=1580.0,
-            h2h_summary="Нет очных встреч в кэше",
+            h2h_summary="Нет очных встреч",
             home_position=2,
             away_position=1,
             home_recent_goals_for=2.0,
@@ -271,9 +290,11 @@ def test_save_settings_accepts_dict(monkeypatch) -> None:
             "openai_model": "gpt-4o-mini",
             "openai_base_url": "https://api.openai.com/v1",
             "favorite_leagues": "PL,PD",
+            "favorite_teams": "57,64",
             "prefetch_wait_on_start": False,
             "show_ai_block": True,
             "compact_fixtures": True,
+            "system_notifications": True,
         }
     )
     _drain_last(page)
@@ -282,9 +303,11 @@ def test_save_settings_accepts_dict(monkeypatch) -> None:
     assert written["OPENAI_MODEL"] == "gpt-4o-mini"
     assert written["OPENAI_BASE_URL"] == "https://api.openai.com/v1"
     assert written["FAVORITE_LEAGUES"] == "PL,PD"
+    assert written["FAVORITE_TEAMS"] == "57,64"
     assert written["PREFETCH_WAIT_ON_START"] == "false"
     assert written["SHOW_AI_BLOCK"] == "true"
     assert written["COMPACT_FIXTURES"] == "true"
+    assert written["SYSTEM_NOTIFICATIONS"] == "true"
     assert app.status == "Настройки сохранены."
     assert app.settings is new_settings
 
@@ -363,3 +386,60 @@ def test_open_match_forecasts_with_explain_false() -> None:
     assert service.explain_calls == 0
     assert app.forecast is not None
     assert app.forecast.match.id == match.id
+
+
+def test_nav_event_data_opens_settings_during_boot() -> None:
+    app, _page, _service = _app()
+    assert app.booting is True
+    app._on_nav(SimpleNamespace(data="3", control=SimpleNamespace(selected_index=0)))
+    assert app.section == "settings"
+    blob = " ".join(
+        str(getattr(node, "value", "") or getattr(node, "label", "") or "")
+        for node in _walk(app._pane.content)
+    )
+    assert "Настройки" in blob
+    assert "Любимые лиги" in blob
+
+
+def test_nav_falls_back_to_selected_index() -> None:
+    app, _page, _service = _app()
+    app.booting = False
+    app._on_nav(SimpleNamespace(data=None, control=SimpleNamespace(selected_index=3)))
+    assert app.section == "settings"
+
+
+def test_fixture_query_paginates_filtered_matches() -> None:
+    app, _page, _service = _app()
+    now = datetime.now(UTC)
+    app.matches = [
+        Match(
+            id=index,
+            competition_code="PL",
+            utc_date=now + timedelta(days=index),
+            status=MatchStatus.SCHEDULED,
+            matchday=index,
+            home_id=index,
+            home_name=f"Home {index}",
+            away_id=100 + index,
+            away_name=f"Away {index}",
+            score=Score(None, None),
+        )
+        for index in range(1, 31)
+    ]
+    app.fixture_query = FixtureQuery(status=MatchStatusFilter.ALL, page_size=10, page=1)
+    page = app._fixture_page()
+    assert page.total == 30
+    assert page.page == 1
+    assert [item.id for item in page.items] == list(range(11, 21))
+    assert [item.id for item in app._filtered_matches()] == list(range(11, 21))
+
+
+def _walk(control: object):
+    yield control
+    content = getattr(control, "content", None)
+    if content is not None:
+        yield from _walk(content)
+    controls = getattr(control, "controls", None)
+    if controls:
+        for child in controls:
+            yield from _walk(child)

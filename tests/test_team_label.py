@@ -66,19 +66,37 @@ def test_team_label_ellipsis_tooltip_and_expand() -> None:
 def test_match_and_league_cards_ellipsis_long_names() -> None:
     match = _match()
     full = match_card(match, lambda _m: None)
+    icons = [node.icon for node in _walk(full) if isinstance(node, ft.Icon)]
+    assert ft.Icons.HOME in icons
+    assert ft.Icons.DIRECTIONS_BUS in icons
     compact = match_card(match, lambda _m: None, compact=True)
-    assert full.height == 52
-    assert compact.height == 56
+    narrow = match_card(match, lambda _m: None, narrow=True)
+    compact_narrow = match_card(match, lambda _m: None, compact=True, narrow=True)
+    assert full.height is None
+    assert compact.height is None
+    assert narrow.height is None
+    assert compact_narrow.height is None
+    assert isinstance(full.content, ft.Row)
+    assert isinstance(narrow.content, ft.Column)
+    assert isinstance(compact_narrow.content, ft.Column)
     full_names = {node.value for node in _texts_with_ellipsis(full)}
     compact_names = {node.value for node in _texts_with_ellipsis(compact)}
+    narrow_names = {node.value for node in _texts_with_ellipsis(narrow)}
     assert "Borussia Mönchengladbach" in full_names
     assert "Olympique Gymnaste Club de Nice" in full_names
     assert "Borussia Mönchengladbach" in compact_names
+    assert "Borussia Mönchengladbach" in narrow_names
+    assert "Olympique Gymnaste Club de Nice" in narrow_names
     for node in _texts_with_ellipsis(full):
         if node.value in {match.home_name, match.away_name}:
             assert node.tooltip == node.value
             assert node.expand is True
             assert node.max_lines == 1
+    for node in _texts_with_ellipsis(narrow):
+        if node.value in {match.home_name, match.away_name}:
+            assert node.expand is True
+            assert node.max_lines == 1
+            assert node.overflow == ft.TextOverflow.ELLIPSIS
 
     league = league_card(
         Competition(2013, "BSA", "Campeonato Brasileiro Série A"),
@@ -87,6 +105,12 @@ def test_match_and_league_cards_ellipsis_long_names() -> None:
     assert league.tooltip == "Campeonato Brasileiro Série A"
     names = [node.value for node in _texts_with_ellipsis(league)]
     assert "Campeonato Brasileiro Série A" in names
+    assert isinstance(league.content, ft.Row)
+    assert league.content.expand is True
+    name_column = next(
+        node for node in _walk(league) if isinstance(node, ft.Column) and node.expand is True
+    )
+    assert any(isinstance(node, ft.Row) and node.expand is True for node in name_column.controls)
 
 
 def test_goal_meter_uses_ellipsis_for_club_names() -> None:
@@ -168,5 +192,8 @@ def test_section_header_and_fact_card_layout() -> None:
     card = fact_card("Форма", ft.Text("WWDLW"))
     assert card.bgcolor == CARD
     assert card.padding == 12
-    assert card.expand is True
+    assert card.expand is False
+    assert card.height is None
+    tall = fact_card("Форма", ft.Text("WWDLW"), height=128)
+    assert tall.height == 128
     assert any(isinstance(node, ft.Text) and node.value == "Форма" for node in _walk(card))

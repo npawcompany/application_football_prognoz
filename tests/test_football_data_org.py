@@ -87,6 +87,26 @@ def test_list_teams_skips_invalid_ids() -> None:
     assert teams[0].short_name == "M'gladbach"
 
 
+def test_get_team_maps_coach_and_squad(team_payload: dict) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/teams/57")
+        return httpx.Response(200, json=team_payload)
+
+    roster = _client(handler).get_team(57)
+    assert roster.team_name == "Arsenal FC"
+    assert roster.coach is not None
+    assert roster.coach.name == "Mikel Arteta"
+    assert roster.coach.role == "COACH"
+    assert roster.coach.contract_until == "2027-06-30"
+    names = [player.name for player in roster.squad]
+    assert names == ["David Raya", "William Saliba", "Martin Ødegaard", "Bukayo Saka"]
+    assert roster.squad[2].shirt_number == 8
+    assert roster.venue == "Emirates Stadium"
+    assert roster.city == "London"
+    assert roster.country == "England"
+    assert roster.country_code == "gb-eng"
+
+
 @pytest.mark.parametrize("status,message", [(403, "403"), (429, "429")])
 def test_api_errors(status: int, message: str) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
