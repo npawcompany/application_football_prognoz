@@ -231,3 +231,4 @@ data/csv/*
 # Agent swarm / journal (local runtime)
 .agent-journal/
 .agent_status.md
+node_modules/

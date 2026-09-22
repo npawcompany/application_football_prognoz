@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "build:vkr": "node scripts/build_vkr_docx.mjs"
+  },
+  "dependencies": {
+    "docx": "^9.7.1"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "out": "/Users/apinyangor/Projects/application_football_prognoz/docs/vkr/vkr.docx",
+  "figures": [
+    {
+      "num": 1,
+      "key": "ожидание Эло от разницы рейтингов",
+      "ok": false
+    },
+    {
+      "num": 2,
+      "key": "столбцы вероятностей 1 / X / 2",
+      "ok": false
+    },
+    {
+      "num": 3,
+      "key": "слои приложения",
+      "file": "figures/drawio/layers.png",
+      "ok": true
+    },
+    {
+      "num": 4,
+      "key": "контекст системы",
+      "file": "figures/drawio/context.png",
+      "ok": true
+    },
+    {
+      "num": 5,
+      "key": "последовательность прогноза",
+      "file": "figures/drawio/forecast-sequence.png",
+      "ok": true
+    },
+    {
+      "num": 6,
+      "key": "таблицы кэша SQLite",
+      "file": "figures/drawio/sqlite-cache.png",
+      "ok": true
+    },
+    {
+      "num": 7,
+      "key": "переходы экранов",
+      "file": "figures/drawio/screens-nav.png",
+      "ok": true
+    },
+    {
+      "num": 8,
+      "key": "экран лиг",
+      "file": "figures/screens/leagues.png",
+      "ok": true
+    },
+    {
+      "num": 9,
+      "key": "экран календаря",
+      "file": "figures/screens/fixtures.png",
+      "ok": true
+    },
+    {
+      "num": 10,
+      "key": "экран прогноза",
+      "file": "figures/screens/forecast.png",
+      "ok": true
+    }
+  ],
+  "missingImages": []
+}
