@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from football_prognoz.domain.match import Match, MatchLineup
+from football_prognoz.domain.player_status import PlayerStatusReport
 from football_prognoz.domain.team import StandingRow, TeamRoster
+
+CONFIDENCE_LEVELS = ("low", "medium", "high")
+CONFIDENCE_LABELS = {"low": "низкая", "medium": "средняя", "high": "высокая"}
 
 
 @dataclass(frozen=True)
@@ -71,9 +76,38 @@ class MatchFeatures:
 
 
 @dataclass(frozen=True)
+class Factor:
+    """One indirect factor from the LLM analysis and how it shifts the picture."""
+
+    factor: str
+    effect: str
+    direction: str = "neutral"  # up | down | neutral, for the side it belongs to
+
+
+@dataclass(frozen=True)
+class FactsPackage:
+    """Structured facts handed to the LLM. Built by services, never by the model."""
+
+    data: dict[str, Any]
+    sources: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Explanation:
+    """LLM analysis. `text` is the short summary; probabilities stay untouched."""
+
     text: str
     model: str
+    home_factors: tuple[Factor, ...] = ()
+    away_factors: tuple[Factor, ...] = ()
+    verdict: str = ""
+    confidence: str = ""  # one of CONFIDENCE_LEVELS or "" for legacy plain text
+    confidence_reason: str = ""
+    sources: tuple[str, ...] = ()
+
+    @property
+    def confidence_label(self) -> str:
+        return CONFIDENCE_LABELS.get(self.confidence, "")
 
 
 @dataclass(frozen=True)
@@ -86,3 +120,6 @@ class MatchForecast:
     home_roster: TeamRoster | None = None
     away_roster: TeamRoster | None = None
     lineup: MatchLineup | None = None
+    player_status: PlayerStatusReport | None = None
+    explanation_error: str | None = None
+    sources: tuple[str, ...] = field(default_factory=tuple)

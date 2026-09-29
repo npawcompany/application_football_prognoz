@@ -1,6 +1,18 @@
 from football_prognoz.domain.match import Match, MatchLineup, MatchStatus, Score
+from football_prognoz.domain.player_status import (
+    Absence,
+    CardEvent,
+    FixtureLineup,
+    LineupPlayer,
+    PlayerRating,
+    PlayerStatusReport,
+    TeamStatus,
+    Transfer,
+)
 from football_prognoz.domain.prediction import (
     Explanation,
+    Factor,
+    FactsPackage,
     MatchFeatures,
     MatchForecast,
     Probabilities,
@@ -9,8 +21,18 @@ from football_prognoz.domain.prediction import (
 from football_prognoz.domain.team import Competition, Person, StandingRow, Team, TeamRoster
 
 __all__ = [
+    "Absence",
+    "CardEvent",
     "Competition",
     "Explanation",
+    "FactsPackage",
+    "Factor",
+    "FixtureLineup",
+    "LineupPlayer",
+    "PlayerRating",
+    "PlayerStatusReport",
+    "TeamStatus",
+    "Transfer",
     "Match",
     "MatchLineup",
     "MatchFeatures",
