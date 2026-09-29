@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from football_prognoz.config import Settings, write_env_value
+from football_prognoz.config import Settings, load_settings, write_env_value
 from football_prognoz.services.matches import current_season_year
 
 
@@ -43,3 +43,49 @@ def test_favorite_team_ids_parses_unique_ints() -> None:
 def test_current_season_year_flips_in_july() -> None:
     assert current_season_year(datetime(2026, 6, 1, tzinfo=UTC)) == 2025
     assert current_season_year(datetime(2026, 7, 1, tzinfo=UTC)) == 2026
+
+
+def test_load_settings_picks_up_env_created_after_startup(tmp_path: Path, monkeypatch) -> None:
+    """Regression: .env missing at import time must still be read after a save."""
+    env = tmp_path / ".env"
+    monkeypatch.setattr("football_prognoz.config.ENV_PATH", env)
+    for name in ("FOOTBALL_DATA_API_KEY", "OLLAMA_API_KEY", "API_FOOTBALL_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    assert not env.exists()
+    assert load_settings().football_data_api_key == ""
+    write_env_value("FOOTBALL_DATA_API_KEY", "fd-key")
+    write_env_value("OLLAMA_API_KEY", "ol-key")
+    write_env_value("API_FOOTBALL_KEY", "af-key")
+    settings = load_settings()
+    assert env.exists()
+    assert settings.football_data_api_key == "fd-key"
+    assert settings.has_ollama_key
+    assert settings.has_api_football_key
+    write_env_value("OLLAMA_MODEL", "gpt-oss:120b")
+    assert load_settings().ollama_model == "gpt-oss:120b"
+
+
+def test_ollama_defaults_and_llm_configured(monkeypatch) -> None:
+    for name in ("OLLAMA_API_KEY", "OLLAMA_HOST", "OLLAMA_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    base = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert base.ollama_host == "https://ollama.com"
+    assert base.ollama_model == "deepseek-v4.1-flash"
+    assert base.ollama_fallback_model == "gpt-oss:120b"
+    assert base.is_ollama_cloud
+    assert base.llm_configured is False  # cloud without a key
+    assert Settings(_env_file=None, ollama_api_key="k").llm_configured is True  # type: ignore[call-arg]
+    local = Settings(_env_file=None, ollama_host="http://127.0.0.1:11434/")  # type: ignore[call-arg]
+    assert local.is_ollama_cloud is False
+    assert local.llm_configured is True
+    assert local.ollama_base_url == "http://127.0.0.1:11434"
+
+
+def test_legacy_openai_keys_in_env_are_ignored(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    env = tmp_path / ".env"
+    env.write_text("OPENAI_API_KEY=old\nOPENAI_MODEL=gpt-4o-mini\n", encoding="utf-8")
+    settings = load_settings(env)
+    assert not hasattr(settings, "openai_api_key")
+    assert settings.has_ollama_key is False
+    assert settings.llm_configured is False

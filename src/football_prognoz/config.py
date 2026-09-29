@@ -1,24 +1,33 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 ENV_PATH = ROOT_DIR / ".env"
 
+OLLAMA_CLOUD_HOST = "https://ollama.com"
+DEFAULT_OLLAMA_MODEL = "deepseek-v4.1-flash"
+DEFAULT_OLLAMA_FALLBACK_MODEL = "gpt-oss:120b"
+
 
 class Settings(BaseSettings):
+    # env_file is always set: pydantic-settings skips a missing file and re-reads it on
+    # every instantiation, so a .env created after startup is picked up by load_settings().
     model_config = SettingsConfigDict(
-        env_file=ENV_PATH if ENV_PATH.exists() else None,
+        env_file=ENV_PATH,
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
     football_data_api_key: str = ""
-    openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
-    openai_base_url: str = "https://api.openai.com/v1"
+    ollama_api_key: str = ""
+    ollama_host: str = OLLAMA_CLOUD_HOST
+    ollama_model: str = DEFAULT_OLLAMA_MODEL
+    ollama_fallback_model: str = DEFAULT_OLLAMA_FALLBACK_MODEL
+    api_football_key: str = ""
     database_path: str = "data/cache/prognoz.db"
     favorite_leagues: str = ""  # comma-separated codes e.g. PL,PD
     favorite_teams: str = ""  # comma-separated football-data.org team ids
@@ -58,16 +67,41 @@ class Settings(BaseSettings):
         return bool(self.football_data_api_key.strip())
 
     @property
-    def has_openai_key(self) -> bool:
-        return bool(self.openai_api_key.strip())
+    def has_ollama_key(self) -> bool:
+        return bool(self.ollama_api_key.strip())
+
+    @property
+    def ollama_base_url(self) -> str:
+        host = self.ollama_host.strip() or OLLAMA_CLOUD_HOST
+        return host.rstrip("/")
+
+    @property
+    def is_ollama_cloud(self) -> bool:
+        """True when OLLAMA_HOST points at ollama.com (the key is mandatory there)."""
+        hostname = (urlparse(self.ollama_base_url).hostname or "").lower()
+        return hostname == "ollama.com" or hostname.endswith(".ollama.com")
+
+    @property
+    def llm_configured(self) -> bool:
+        """Cloud needs OLLAMA_API_KEY; a local/self-hosted OLLAMA_HOST works without it."""
+        if not (self.ollama_model.strip() or self.ollama_fallback_model.strip()):
+            return False
+        return self.has_ollama_key or not self.is_ollama_cloud
+
+    @property
+    def has_api_football_key(self) -> bool:
+        return bool(self.api_football_key.strip())
 
 
-def load_settings() -> Settings:
-    return Settings()
+def load_settings(env_file: Path | None = None) -> Settings:
+    """Read settings from the environment and the .env file as it is *now*."""
+    path = env_file if env_file is not None else ENV_PATH
+    return Settings(_env_file=path)  # type: ignore[call-arg]
 
 
-def write_env_value(key: str, value: str, path: Path = ENV_PATH) -> None:
+def write_env_value(key: str, value: str, path: Path | None = None) -> None:
     """Update a single KEY=value in .env without dropping other keys."""
+    path = path if path is not None else ENV_PATH
     lines: list[str] = []
     if path.exists():
         lines = path.read_text(encoding="utf-8").splitlines()
