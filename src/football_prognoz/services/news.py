@@ -56,8 +56,80 @@ _PRESS_NAMES: dict[str, tuple[str, ...]] = {
     "bayer leverkusen": ("leverkusen",),
     "athletic bilbao": ("athletic club",),
     "psv eindhoven": ("psv",),
+    "lask": ("lask linz",),
+    "lask linz": ("lask",),
+    "red bull salzburg": ("salzburg", "rb salzburg"),
+    "sturm graz": ("sturm",),
+    "rapid wien": ("rapid vienna",),
+    "austria wien": ("austria vienna",),
+    "rb leipzig": ("leipzig",),
+    "eintracht frankfurt": ("frankfurt",),
+    "vfb stuttgart": ("stuttgart",),
+    "borussia monchengladbach": ("gladbach", "monchengladbach"),
+    "olympique lyonnais": ("lyon",),
+    "olympique de marseille": ("marseille",),
+    "real sociedad": ("la real",),
+    "sporting cp": ("sporting lisbon",),
+    "sporting portugal": ("sporting cp", "sporting lisbon"),
+    "real betis": ("betis",),
+    "real betis balompie": ("betis", "real betis"),
+    "benfica": ("sl benfica",),
+    "porto": ("fc porto",),
+    "ajax": ("ajax amsterdam",),
+    "feyenoord": ("feyenoord rotterdam",),
+    "celtic": ("celtic fc",),
+    "rangers": ("rangers fc",),
+    "club brugge": ("brugge", "club bruges"),
+    "galatasaray": ("gala",),
+    "shakhtar donetsk": ("shakhtar",),
+    "dinamo zagreb": ("dinamo",),
+    "crvena zvezda": ("red star belgrade", "red star"),
+    "slavia praha": ("slavia prague",),
+    "sparta praha": ("sparta prague",),
 }
-_SHORT_OK = frozenset({"psg", "psv"})
+_SHORT_OK = frozenset({"psg", "psv", "az"})
+# Generic club words: dropped to build short aliases ("LASK Linz" -> also "LASK").
+_CLUB_WORDS = frozenset(
+    {
+        "fc",
+        "afc",
+        "cf",
+        "sc",
+        "sk",
+        "fk",
+        "ac",
+        "as",
+        "ss",
+        "us",
+        "sv",
+        "bk",
+        "if",
+        "ik",
+        "cd",
+        "ud",
+        "rc",
+        "rcd",
+        "sd",
+        "club",
+        "de",
+        "the",
+        "calcio",
+        "futebol",
+        "clube",
+        "football",
+        "1",
+        "1.",
+        "cp",
+        "sl",
+        "nk",
+        "hnk",
+        "gnk",
+        "tsg",
+        "vfl",
+        "vfb",
+        "osc",
+    }
+)
 
 
 def _normalize_text(text: str) -> str:
@@ -68,18 +140,26 @@ def _normalize_text(text: str) -> str:
 
 
 def team_phrases(name: str) -> tuple[str, ...]:
-    """Whole-word phrases that identify a team in a headline ("Man City", "Arsenal")."""
+    """Whole-word phrases that identify a team in a headline ("Man City", "Arsenal").
+
+    Besides the full name and press names, short aliases are derived: the name without
+    generic club words, and its first token when it is an acronym in the original
+    ("LASK Linz" -> "lask"). City names alone are never aliases (Manchester, Milan).
+    """
     primary = normalize_team_name(name)
-    raw = " ".join(
-        token for token in _normalize_text(name).split() if token not in {"fc", "afc", "cf"}
-    )
-    phrases = [primary, raw, *_PRESS_NAMES.get(primary, ())]
+    tokens = [t for t in _normalize_text(name).split() if t not in _CLUB_WORDS]
+    raw = " ".join(tokens)
+    phrases = [primary, raw, *_PRESS_NAMES.get(primary, ()), *_PRESS_NAMES.get(raw, ())]
+    original = [t for t in re.split(r"[\s\-]+", name.strip()) if t]
+    acronyms = {_normalize_text(t) for t in original if len(t) >= 3 and t.isupper() and t.isalpha()}
+    if len(tokens) >= 2 and tokens[0] in acronyms:
+        phrases.append(tokens[0])  # "LASK Linz" -> "lask"; city names are never used alone
     result = []
     for phrase in phrases:
         phrase = _normalize_text(phrase)
         if not phrase or phrase in result:
             continue
-        if len(phrase) < 4 and phrase not in _SHORT_OK:
+        if len(phrase) < 4 and phrase not in _SHORT_OK and phrase not in acronyms:
             continue
         result.append(phrase)
     return tuple(result)
@@ -91,8 +171,12 @@ def mentions_team(text: str, phrases: tuple[str, ...]) -> bool:
 
 
 def gnews_query(name: str) -> str:
-    phrase = team_phrases(name)[0] if team_phrases(name) else name
-    return f'"{phrase}" AND (football OR soccer)'
+    """Up to three aliases OR-ed: `("lask linz" OR "lask") AND (football OR soccer)`."""
+    phrases = list(team_phrases(name)[:3]) or [name]
+    if len(phrases) == 1:
+        return f'"{phrases[0]}" AND (football OR soccer)'
+    joined = " OR ".join(f'"{p}"' for p in phrases)
+    return f"({joined}) AND (football OR soccer)"
 
 
 class NewsService:
@@ -239,6 +323,7 @@ class NewsService:
                     url=article.url,
                     published_at=article.published_at,
                     topic=classify_topic(f"{article.title} {article.description}"),
+                    summary=article.description,
                 )
             )
             if len(fresh) >= MAX_PER_TEAM:

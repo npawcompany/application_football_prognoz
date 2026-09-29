@@ -20,14 +20,17 @@ from football_prognoz.data.api_football import (
     StoreBudget,
     af_season,
     parse_cards,
+    parse_fixture_statistics,
     parse_fixtures,
     parse_injuries,
     parse_lineups,
+    parse_penalties,
     parse_ratings,
     parse_sidelined,
     parse_transfers,
 )
 from football_prognoz.data.store import SQLiteStore
+from football_prognoz.domain.markets import TeamSetPieces
 from football_prognoz.domain.match import Match
 from football_prognoz.domain.player_status import (
     Absence,
@@ -51,6 +54,7 @@ TTL_LINEUPS_LIVE_H = 0.25
 TTL_PLAN_BLOCK_H = 24
 LOW_BUDGET = 20  # below this many requests left today, skip optional endpoints
 RECENT_MATCHES = 2
+RECENT_STATS = 3  # finished matches per team for corners / cards / fouls / penalties
 TRANSFER_WINDOW_DAYS = 90
 KEY_PLAYER_TOP_N = 5
 KEY_PLAYER_MIN_MINUTES = 45
@@ -62,6 +66,7 @@ SRC_LINEUPS = "API-Football: стартовые составы"
 SRC_RATINGS = "API-Football: рейтинги игроков за последний матч"
 SRC_SIDELINED = "API-Football: сроки отсутствия (sidelined)"
 SRC_TRANSFERS = "API-Football: трансферы за 90 дней"
+SRC_STATS = "API-Football: статистика последних матчей (угловые, карточки, фолы, пенальти)"
 
 
 class _Stop(Exception):
@@ -198,9 +203,13 @@ class PlayerStatusService:
                     sources.append(SRC_SIDELINED)
                 parts["transfers"] = self._transfers((home_af, away_af), match.utc_date)
                 sources.append(SRC_TRANSFERS)
+                parts["set_pieces"] = self._set_pieces(fixtures, fixture, (home_af, away_af))
+                if parts["set_pieces"]:
+                    sources.append(SRC_STATS)
             else:
                 notes.append(
-                    "Мало запросов API-Football на сегодня: рейтинги и трансферы пропущены."
+                    "Мало запросов API-Football на сегодня: рейтинги, статистика матчей "
+                    "и трансферы пропущены."
                 )
         except _Stop as exc:
             self._remember_plan_block(exc, block_key)
@@ -283,6 +292,66 @@ class PlayerStatusService:
             out[team_id] = parse_ratings(raw).get(team_id, [])
         return out
 
+    def _set_pieces(
+        self, fixtures: list[AfFixture], target: AfFixture, team_ids: tuple[int, int]
+    ) -> dict[int, TeamSetPieces]:
+        """Per-match averages over the last RECENT_STATS finished matches of each team.
+
+        Statistics and events of finished matches never change (TTL 30 days); the events
+        cache is shared with the red-card step, so penalties cost no extra request there.
+        """
+        assert self._client is not None
+        client = self._client
+        out: dict[int, TeamSetPieces] = {}
+        for team_id in team_ids:
+            sums: dict[str, float] = {}
+            played = 0
+            pen_for = pen_against = 0
+            pen_matches = 0
+            for item in _recent_finished(fixtures, target, team_id)[-RECENT_STATS:]:
+                other = item.away_id if item.home_id == team_id else item.home_id
+                raw = self._cached(
+                    f"af:stats:{item.fixture_id}",
+                    TTL_FINISHED_H,
+                    lambda fid=item.fixture_id: client.fixture_statistics(fid),
+                )
+                stats = parse_fixture_statistics(raw)
+                own, opp = stats.get(team_id), stats.get(other)
+                if own is not None and opp is not None:
+                    played += 1
+                    for key in ("corners", "yellow", "fouls"):
+                        sums[f"{key}_for"] = sums.get(f"{key}_for", 0.0) + own.get(key, 0.0)
+                        sums[f"{key}_against"] = sums.get(f"{key}_against", 0.0) + opp.get(key, 0.0)
+                events = self._cached(
+                    f"af:events:{item.fixture_id}",
+                    TTL_FINISHED_H,
+                    lambda fid=item.fixture_id: client.fixture_events(fid),
+                )
+                if isinstance(events, list) and events:
+                    penalties = parse_penalties(events)
+                    pen_for += penalties.get(team_id, 0)
+                    pen_against += penalties.get(other, 0)
+                    pen_matches += 1
+            if not played and not pen_matches:
+                continue
+
+            def avg(key: str, n: int = played) -> float | None:
+                return sums[key] / n if n and key in sums else None
+
+            out[team_id] = TeamSetPieces(
+                matches=played,
+                corners_for=avg("corners_for"),
+                corners_against=avg("corners_against"),
+                yellow_for=avg("yellow_for"),
+                yellow_against=avg("yellow_against"),
+                fouls_for=avg("fouls_for"),
+                fouls_against=avg("fouls_against"),
+                penalties_for=pen_for / pen_matches if pen_matches else None,
+                penalties_against=pen_against / pen_matches if pen_matches else None,
+                penalty_matches=pen_matches,
+            )
+        return out
+
     def _returns(
         self, absences: dict[int, list[Absence]], match_date: datetime
     ) -> dict[int, str | None]:
@@ -348,6 +417,7 @@ class PlayerStatusService:
             transfers=tuple(parts.get("transfers", {}).get(team_id, [])),
             lineup=parts.get("lineups", {}).get(team_id),
             top_ratings=tuple(ratings[:3]),
+            set_pieces=parts.get("set_pieces", {}).get(team_id),
         )
 
 

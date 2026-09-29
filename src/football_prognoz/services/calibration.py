@@ -7,6 +7,7 @@ Forecasts first made after kick-off are excluded. Nothing here changes a forecas
 from __future__ import annotations
 
 import csv
+import json
 import math
 from collections.abc import Iterable, Sequence
 from pathlib import Path
@@ -53,6 +54,7 @@ CSV_COLUMNS = (
     "brier",
     "log_loss",
     "sources",
+    "markets_json",
 )
 
 
@@ -219,6 +221,11 @@ def export_csv(records: Iterable[ForecastRecord], path: Path) -> int:
                         else ""
                     ),
                     "sources": "; ".join(r.sources),
+                    "markets_json": (
+                        json.dumps(r.markets, ensure_ascii=False, separators=(",", ":"))
+                        if r.markets
+                        else ""
+                    ),
                 }
             )
             count += 1

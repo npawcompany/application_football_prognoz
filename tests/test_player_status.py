@@ -100,6 +100,8 @@ class Router:
             return httpx.Response(200, json=TRANSFERS if team == "42" else _envelope([]))
         if path == "/fixtures/lineups":
             return httpx.Response(200, json=_sample("fixtures_lineups.json"))
+        if path == "/fixtures/statistics":
+            return httpx.Response(200, json=_envelope([]))
         return httpx.Response(404)
 
 
@@ -274,3 +276,84 @@ def test_mid_report_error_keeps_partial_data(tmp_path: Path, path: str) -> None:
     assert report is not None
     assert report.af_fixture_id == 1300001
     assert any("лимит" in note for note in report.notes)
+
+
+FIXTURE_TEAMS = {"1299990": (42, 49), "1299991": (50, 40), "1299980": (39, 42)}
+
+
+class StatsRouter(Router):
+    """Adds `/fixtures/statistics` (corners 6/3, yellow 2/1, fouls 10/12 for home/away)
+    and one penalty for the home side of 1299990."""
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        fixture = request.url.params.get("fixture")
+        if path == "/fixtures/statistics":
+            self.calls.append(path)
+            home, away = FIXTURE_TEAMS[fixture]
+
+            def team(tid: int, corners: int, yellow: int | None, fouls: int) -> dict:
+                return {
+                    "team": {"id": tid, "name": str(tid)},
+                    "statistics": [
+                        {"type": "Corner Kicks", "value": corners},
+                        {"type": "Yellow Cards", "value": yellow},
+                        {"type": "Fouls", "value": fouls},
+                        {"type": "Ball Possession", "value": "55%"},
+                    ],
+                }
+
+            return httpx.Response(
+                200, json=_envelope([team(home, 6, 2, 10), team(away, 3, None, 12)])
+            )
+        if path == "/fixtures/events" and fixture == "1299990":
+            self.calls.append(path)
+            events = _sample("fixtures_events_pl.json")["response"] + [
+                {
+                    "time": {"elapsed": 55, "extra": None},
+                    "team": {"id": 42, "name": "Arsenal"},
+                    "player": {"id": 1, "name": "B. Saka"},
+                    "type": "Goal",
+                    "detail": "Penalty",
+                    "comments": None,
+                },
+                {
+                    "time": {"elapsed": 120, "extra": None},
+                    "team": {"id": 49, "name": "Chelsea"},
+                    "player": {"id": 2, "name": "X"},
+                    "type": "Goal",
+                    "detail": "Missed Penalty",
+                    "comments": "Penalty Shootout",
+                },
+            ]
+            return httpx.Response(200, json=_envelope(events))
+        return super().__call__(request)
+
+
+def test_set_piece_averages_from_fixture_statistics_and_events(tmp_path: Path) -> None:
+    router = StatsRouter()
+    service, _store = _service(tmp_path, router)
+    report = service.report_for(_match())
+    assert report is not None
+    home = report.home.set_pieces
+    away = report.away.set_pieces
+    assert home is not None and away is not None
+    # Arsenal (42): home in 1299990 (6 corners, 3 against), away in 1299980 (3 / 6).
+    assert home.matches == 2
+    assert home.corners_for == 4.5 and home.corners_against == 4.5
+    assert home.yellow_for == (2 + 0) / 2  # null yellow cards count as zero
+    # 1299980 has no events -> only one match read for penalties; shoot-out kick ignored.
+    assert home.penalty_matches == 1
+    assert home.penalties_for == 1.0 and home.penalties_against == 0.0
+    assert away.matches == 1 and away.corners_for == 6.0 and away.fouls_against == 12.0
+    assert any("статистика последних матчей" in s for s in report.sources)
+    calls = len(router.calls)
+    service.report_for(_match())  # finished-match statistics are cached
+    assert router.calls[calls:].count("/fixtures/statistics") == 0
+
+
+def test_parse_fixture_statistics_reads_the_official_sample() -> None:
+    from football_prognoz.data.api_football import parse_fixture_statistics
+
+    stats = parse_fixture_statistics(_sample("fixtures_statistics.json")["response"])
+    assert stats == {463: {"fouls": 22.0, "corners": 3.0, "yellow": 5.0, "red": 1.0}}

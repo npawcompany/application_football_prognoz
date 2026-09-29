@@ -124,7 +124,11 @@ def test_parse_rss_rejects_broken_xml() -> None:
         ("De Bruyne serves a one-match ban", "suspension"),
         ("Club sack manager after defeat", "manager"),
         ("Arsenal complete loan signing", "transfer"),
-        ("Match preview", "other"),
+        ("Match preview", "match"),
+        ("Arsenal predicted XI: team news for Chelsea clash", "lineup"),
+        ("Man City found guilty of financial breaches", "club"),
+        ("Chelsea 3-1 Spurs: player ratings", "match"),
+        ("Arteta: we have to be brave", "other"),
     ],
 )
 def test_classify_topic(text: str, topic: str) -> None:

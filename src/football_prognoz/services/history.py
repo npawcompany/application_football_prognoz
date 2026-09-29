@@ -31,7 +31,8 @@ from football_prognoz.domain.history import (
     outcome_from_score,
 )
 from football_prognoz.domain.match import Match, MatchStatus
-from football_prognoz.domain.prediction import MatchFeatures
+from football_prognoz.domain.prediction import MatchFeatures, Probabilities
+from football_prognoz.models.markets import build_markets
 from football_prognoz.models.predictor import (
     MODEL_VERSION,
     Predictor,
@@ -148,7 +149,20 @@ class ForecastHistoryService:
             forecast_at=now,
             made_after_kickoff=started,
             status=record_status(match.status),
+            markets=self._markets_json(features, probs),
         )
+
+    def _markets_json(
+        self, features: MatchFeatures, probs: Probabilities
+    ) -> dict[str, object] | None:
+        """Goal markets only: collection stays local and spends no API-Football quota."""
+        try:
+            lam_home, lam_away = self._predictor.goal_lambdas(features)
+            table = build_markets(lam_home, lam_away, probs, sample_matches=features.sample_matches)
+        except Exception as exc:  # noqa: BLE001 — optional column, never blocks collection
+            log.warning("Markets for history failed: %s", exc)
+            return None
+        return table.to_json(available_only=True)
 
     # --- results --------------------------------------------------------------
 

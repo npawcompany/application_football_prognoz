@@ -122,6 +122,13 @@ def test_explain_forecast_success_keeps_probabilities_and_adds_sources(
             "verdict": "Итог совпадает с расчётом.",
             "confidence": "low",
             "confidence_reason": "Мало матчей.",
+            "market_comments": [{"market": "total_over_2.5", "comment": "Команды забивают."}],
+            "top_markets": [
+                {"market": "1x2_1", "reason": "Сильнее по Elo."},
+                {"market": "dc_1x", "reason": "Дома не проигрывают."},
+                {"market": "total_over_1.5", "reason": "Много голов в последних матчах."},
+            ],
+            "risks": ["Мала выборка матчей."],
         },
         ensure_ascii=False,
     )
@@ -132,6 +139,12 @@ def test_explain_forecast_success_keeps_probabilities_and_adds_sources(
     assert result.probabilities == forecast.probabilities
     assert "Ollama: deepseek-v4.1-flash" in result.sources
     assert SRC_FOOTBALL_DATA in result.sources
+    assert [c.market for c in result.explanation.top_markets] == [
+        "1x2_1",
+        "dc_1x",
+        "total_over_1.5",
+    ]
+    assert result.explanation.generated_at is not None
 
 
 def test_attach_news_adds_report_sources_and_prompt_block(

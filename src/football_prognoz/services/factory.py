@@ -7,6 +7,7 @@ not reset the football-data.org 10 req/min window (or the API-Football one).
 from __future__ import annotations
 
 from football_prognoz.ai.explainer import Explainer
+from football_prognoz.ai.news_summary import NewsSummarizer
 from football_prognoz.ai.ollama import OllamaClient
 from football_prognoz.config import Settings
 from football_prognoz.data.api_football import (
@@ -83,4 +84,5 @@ def build_service(
         explainer=Explainer(llm, model_name, cache=SQLiteExplanationCache(store)),
         player_status=player_status,
         news=build_news(settings, store),
+        news_summarizer=NewsSummarizer(llm),
     )

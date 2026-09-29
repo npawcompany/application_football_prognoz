@@ -266,15 +266,24 @@ def test_enrich_reports_step_and_stops_when_cancelled(tmp_path: Path, monkeypatc
 
     service, _client, _store = _service(tmp_path)
     order: list[str] = []
-    for name in ("attach_details", "attach_player_status", "attach_news", "explain_forecast"):
+    names = (
+        "attach_details",
+        "attach_player_status",
+        "attach_news",
+        "attach_markets",
+        "attach_saved_analyses",
+        "explain_forecast",
+        "summarize_news",
+    )
+    for name in names:
         monkeypatch.setattr(
             service, name, lambda fc, _n=name: (order.append(_n), fc)[1], raising=True
         )
     monkeypatch.setattr(type(service._explainer), "enabled", property(lambda self: True))
     steps: list[object] = []
     service.enrich("F", on_step=steps.append)  # type: ignore[arg-type]
-    assert order == ["attach_details", "attach_player_status", "attach_news", "explain_forecast"]
-    assert steps == ["F"]
+    assert order == list(names)
+    assert steps == ["F", "F"]  # before the LLM (squads, saved result) and after the analysis
 
     order.clear()
     cancel = threading.Event()

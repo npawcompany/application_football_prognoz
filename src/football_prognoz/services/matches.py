@@ -8,7 +8,12 @@ from datetime import UTC, date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 
-from football_prognoz.ai.explainer import Explainer
+from football_prognoz.ai.explainer import Explainer, explanation_from_dict, explanation_to_dict
+from football_prognoz.ai.news_summary import (
+    NewsSummarizer,
+    news_summary_from_dict,
+    news_summary_to_dict,
+)
 from football_prognoz.ai.ollama import LLMError
 from football_prognoz.data import FREE_COMPETITIONS
 from football_prognoz.data.football_data_org import FootballDataError, FootballDataOrgClient
@@ -18,9 +23,17 @@ from football_prognoz.data.store import (
     SQLiteStore,
 )
 from football_prognoz.domain.history import CalibrationReport, CollectionResult, HistoricalHint
+from football_prognoz.domain.markets import (
+    NOTE_MISSING,
+    NOTE_NO_KEY,
+    NOTE_PENDING,
+    MarketsTable,
+)
 from football_prognoz.domain.match import Match, MatchLineup
-from football_prognoz.domain.prediction import MatchForecast, Probabilities
+from football_prognoz.domain.player_status import PlayerStatusReport
+from football_prognoz.domain.prediction import MatchFeatures, MatchForecast, Probabilities
 from football_prognoz.domain.team import Competition, StandingRow, Team, TeamRoster
+from football_prognoz.models.markets import build_markets
 from football_prognoz.models.predictor import Predictor
 from football_prognoz.services.calendar import (
     day_bounds,
@@ -40,8 +53,19 @@ from football_prognoz.services.facts import SRC_FOOTBALL_DATA, SRC_MODEL, FactsS
 from football_prognoz.services.features import FeatureService
 from football_prognoz.services.history import ForecastHistoryService, Progress
 from football_prognoz.services.leagues import LeagueInfo, league_infos
+from football_prognoz.services.llm_policy import (
+    FINISHED_NONE_TEXT,
+    KIND_MATCH,
+    KIND_NEWS,
+    NEWS_FINISHED_NONE_TEXT,
+    PLAN_FINISHED_NONE,
+    PLAN_REFRESH,
+    PLAN_USE_SAVED,
+    SavedAnalysis,
+    plan_for,
+)
 from football_prognoz.services.news import NewsService
-from football_prognoz.services.player_status import PlayerStatusService
+from football_prognoz.services.player_status import SRC_STATS, PlayerStatusService
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +78,8 @@ CALENDAR_YEAR_CODES = frozenset({"BSA"})
 # so no year can be derived from today's date — ask the API for its current season.
 TOURNAMENT_CODES = frozenset({"WC", "EC"})
 KEY_REJECTED_STATUSES = frozenset({400, 401, 403})
+NEWS_NO_LLM_TEXT = "Итог недоступен: нет ключа Ollama."
+NEWS_EMPTY_TEXT = "Новостей о командах нет — итог не нужен."
 
 
 def current_season_year(now: datetime | None = None, code: str | None = None) -> int | None:
@@ -103,6 +129,8 @@ class MatchService:
         explainer: Explainer,
         player_status: PlayerStatusService | None = None,
         news: NewsService | None = None,
+        news_summarizer: NewsSummarizer | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self._client = client
         self._store = store
@@ -111,6 +139,8 @@ class MatchService:
         self._explainer = explainer
         self._player_status = player_status
         self._news = news
+        self._summarizer = news_summarizer or NewsSummarizer(None)
+        self._now = now or (lambda: datetime.now(UTC))
         self._facts = FactsService(store)
         self._history = self._make_history()
         self._calibration: tuple[tuple[int, str | None], CalibrationReport] | None = None
@@ -509,10 +539,97 @@ class MatchService:
             lineup=lineup,
             sources=BASE_SOURCES,
             history_hint=self._history_hint(probabilities),
+            markets=self._markets(features, probabilities, None, pending=True),
         )
+        result = self.attach_saved_analyses(result)
         if explain:
             return self.enrich(result, explain=True)
         return result
+
+    # --- markets table ----------------------------------------------------------------
+
+    def _markets(
+        self,
+        features: MatchFeatures,
+        probabilities: Probabilities,
+        report: PlayerStatusReport | None,
+        *,
+        pending: bool = False,
+    ) -> MarketsTable | None:
+        """Goal markets from the model; set pieces only with API-Football averages."""
+        pieces = None
+        if self._player_status is None or not self._player_status.enabled:
+            note = NOTE_NO_KEY
+        elif report is None:
+            note = NOTE_PENDING if pending else NOTE_MISSING
+        else:
+            note = NOTE_MISSING
+            home, away = report.home.set_pieces, report.away.set_pieces
+            if home is not None and away is not None:
+                pieces = (home, away)
+        try:
+            lam_home, lam_away = self._predictor.goal_lambdas(features)
+            return build_markets(
+                lam_home,
+                lam_away,
+                probabilities,
+                sample_matches=features.sample_matches,
+                set_pieces=pieces,
+                set_pieces_note=note,
+                sources=(SRC_MODEL, SRC_STATS) if pieces else (SRC_MODEL,),
+            )
+        except Exception as exc:  # noqa: BLE001 — the table is optional, 1X2 is not
+            log.warning("Markets table failed: %s", exc)
+            return None
+
+    def attach_markets(self, forecast: MatchForecast) -> MatchForecast:
+        markets = self._markets(forecast.features, forecast.probabilities, forecast.player_status)
+        return replace(forecast, markets=markets)
+
+    # --- saved LLM results (services/llm_policy) ------------------------------------------
+
+    def _saved(self, match_id: int, kind: str) -> SavedAnalysis | None:
+        try:
+            return SavedAnalysis.from_row(kind, self._store.get_llm_analysis(match_id, kind))
+        except Exception as exc:  # noqa: BLE001 — a broken row must not break the forecast
+            log.warning("Saved %s analysis unreadable: %s", kind, exc)
+            return None
+
+    def attach_saved_analyses(self, forecast: MatchForecast) -> MatchForecast:
+        """SQLite only: saved analysis / news summary + what the LLM step will do."""
+        match = forecast.match
+        now = self._now()
+        saved = self._saved(match.id, KIND_MATCH)
+        plan = plan_for(saved, match, now)
+        explanation = forecast.explanation
+        if saved is not None and plan in {PLAN_USE_SAVED, PLAN_REFRESH}:
+            explanation = replace(
+                explanation_from_dict(saved.payload, saved.model), generated_at=saved.generated_at
+            )
+        note = FINISHED_NONE_TEXT if plan == PLAN_FINISHED_NONE else ""
+        news_saved = self._saved(match.id, KIND_NEWS)
+        news_plan = plan_for(news_saved, match, now)
+        summary = forecast.news_summary
+        if news_saved is not None and news_plan in {PLAN_USE_SAVED, PLAN_REFRESH}:
+            summary = replace(
+                news_summary_from_dict(news_saved.payload, news_saved.model),
+                generated_at=news_saved.generated_at,
+            )
+        if news_plan == PLAN_FINISHED_NONE:
+            news_note = NEWS_FINISHED_NONE_TEXT
+        elif summary is None and not self._summarizer.enabled:
+            news_note = NEWS_NO_LLM_TEXT
+        else:
+            news_note = ""
+        return replace(
+            forecast,
+            explanation=explanation,
+            analysis_plan=plan,
+            analysis_note=note,
+            news_summary=summary,
+            news_plan=news_plan,
+            news_note=news_note,
+        )
 
     def attach_details(self, forecast: MatchForecast) -> MatchForecast:
         """Club cards + lineup from football-data.org (cached; bounded rate-limit wait)."""
@@ -570,9 +687,16 @@ class MatchService:
         return replace(forecast, news=report, sources=tuple(dict.fromkeys(sources)))
 
     def explain_forecast(self, forecast: MatchForecast) -> MatchForecast:
-        """Ask the LLM for a structured analysis; LLM failures land in explanation_error."""
+        """LLM analysis + market comments under the caching policy.
+
+        Finished match or a fresh saved result → no call. Otherwise generate; success is
+        saved in SQLite, a failure keeps the saved result (only a note is added).
+        """
         if not self._explainer.enabled:
-            return replace(forecast, explanation=None, explanation_error=None)
+            return replace(forecast, explanation_error=None)
+        plan = plan_for(self._saved(forecast.match.id, KIND_MATCH), forecast.match, self._now())
+        if plan in {PLAN_USE_SAVED, PLAN_FINISHED_NONE}:
+            return forecast
         facts = self._facts.build(
             forecast.match,
             forecast.features,
@@ -589,18 +713,76 @@ class MatchService:
                 forecast.probabilities,
                 forecast.scoreline,
                 facts,
+                forecast.markets,
             )
         except LLMError as exc:
             log.warning("LLM explanation failed: %s", exc)
+            if plan == PLAN_REFRESH and forecast.explanation is not None:
+                return replace(forecast, analysis_refresh_error=str(exc))
             return replace(forecast, explanation=None, explanation_error=str(exc))
-        sources = facts.sources
-        if explanation is not None:
-            sources = sources + (f"Ollama: {explanation.model}",)
+        if explanation is None:
+            return forecast
+        generated = self._now()
+        explanation = replace(explanation, generated_at=generated)
+        try:
+            self._store.save_llm_analysis(
+                forecast.match.id,
+                KIND_MATCH,
+                explanation_to_dict(explanation),
+                model=explanation.model,
+                generated_at=generated,
+                kickoff_utc=forecast.match.utc_date,
+            )
+        except Exception as exc:  # noqa: BLE001 — showing it still beats losing it
+            log.warning("Could not save the analysis: %s", exc)
+        sources = facts.sources + (f"Ollama: {explanation.model}",)
         return replace(
             forecast,
             explanation=explanation,
             explanation_error=None,
+            analysis_plan=PLAN_USE_SAVED,
+            analysis_refresh_error="",
             sources=tuple(dict.fromkeys(forecast.sources + sources)),
+        )
+
+    def summarize_news(self, forecast: MatchForecast) -> MatchForecast:
+        """«Итог по новостям» under the same caching policy. Never touches 1X2."""
+        match = forecast.match
+        plan = plan_for(self._saved(match.id, KIND_NEWS), match, self._now())
+        if plan in {PLAN_USE_SAVED, PLAN_FINISHED_NONE}:
+            return forecast
+        if not self._summarizer.enabled:
+            if forecast.news_summary is None:
+                return replace(forecast, news_note=NEWS_NO_LLM_TEXT)
+            return forecast
+        if forecast.news is None or not forecast.news.has_data():
+            if forecast.news_summary is None:
+                return replace(forecast, news_note=NEWS_EMPTY_TEXT)
+            return forecast
+        try:
+            summary = self._summarizer.summarize(match, forecast.news)
+        except LLMError as exc:
+            log.warning("News summary failed: %s", exc)
+            if forecast.news_summary is not None:
+                return replace(forecast, news_summary_error=f"Обновить не удалось: {exc}")
+            return replace(forecast, news_summary_error=str(exc))
+        if summary is None:
+            return forecast
+        generated = self._now()
+        summary = replace(summary, generated_at=generated)
+        try:
+            self._store.save_llm_analysis(
+                match.id,
+                KIND_NEWS,
+                news_summary_to_dict(summary),
+                model=summary.model,
+                generated_at=generated,
+                kickoff_utc=match.utc_date,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not save the news summary: %s", exc)
+        return replace(
+            forecast, news_summary=summary, news_plan=PLAN_USE_SAVED, news_summary_error=""
         )
 
     def _history_summary(self, forecast: MatchForecast) -> dict[str, Any] | None:
@@ -636,9 +818,16 @@ class MatchService:
         check()
         enriched = self.attach_news(enriched)
         check()
+        enriched = self.attach_markets(enriched)
+        enriched = self.attach_saved_analyses(enriched)
         if on_step is not None:
             on_step(enriched)
         if explain and self._explainer.enabled:
             enriched = self.explain_forecast(enriched)
+            check()
+            if on_step is not None:
+                on_step(enriched)
+        if explain:
+            enriched = self.summarize_news(enriched)
             check()
         return enriched

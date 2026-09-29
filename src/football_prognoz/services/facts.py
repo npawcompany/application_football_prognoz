@@ -127,6 +127,7 @@ def _team_status_facts(status: TeamStatus) -> dict[str, Any]:
             if status.lineup is not None and status.lineup.start_xi
             else None
         ),
+        "set_piece_averages": status.set_pieces.to_dict() if status.set_pieces else None,
         "top_rated_last_match": [
             {"player": r.player_name, "rating": r.rating} for r in status.top_ratings
         ],
@@ -274,6 +275,11 @@ class FactsService:
                 "home": rest_days(home_games),
                 "away": rest_days(away_games),
                 "note": "только по матчам этой лиги в кэше",
+            },
+            "venue": {
+                "stadium": match.venue or None,
+                "home_advantage_elo_points": HOME_ADVANTAGE,
+                "note": "домашний фактор уже учтён в Elo и ожидаемых голах модели",
             },
             "player_status": player_status_facts(player_status),
             "news": news_facts(news),
