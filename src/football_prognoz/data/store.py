@@ -10,6 +10,7 @@ from football_prognoz.domain.team import Competition, Person, StandingRow, Team,
 
 TTL_SCHEDULED_HOURS = 6
 TTL_FINISHED_HOURS = 24
+TTL_LLM_HOURS = 12
 
 
 def _utcnow() -> datetime:
@@ -99,6 +100,39 @@ class SQLiteStore:
                     away_bench TEXT NOT NULL,
                     fetched_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS api_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    fetched_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS api_usage (
+                    provider TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    count INTEGER NOT NULL DEFAULT 0,
+                    exhausted INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (provider, day)
+                );
+                CREATE TABLE IF NOT EXISTS af_team_map (
+                    fd_team_id INTEGER PRIMARY KEY,
+                    af_team_id INTEGER NOT NULL,
+                    fd_name TEXT,
+                    af_name TEXT,
+                    method TEXT,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS af_fixture_map (
+                    fd_match_id INTEGER PRIMARY KEY,
+                    af_fixture_id INTEGER NOT NULL,
+                    af_league_id INTEGER,
+                    season INTEGER,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS llm_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    model TEXT,
+                    payload TEXT NOT NULL,
+                    fetched_at TEXT NOT NULL
+                );
                 """
             )
             self._migrate(conn)
@@ -131,7 +165,11 @@ class SQLiteStore:
         return _utcnow() - fetched < timedelta(hours=ttl_hours)
 
     def clear_all(self) -> None:
-        """Delete cached rows; keep tables and indexes."""
+        """Delete cached rows; keep tables and indexes.
+
+        API-Football id mappings and the daily request counter survive: the mapping is
+        stable, and forgetting the counter would let the app overrun the daily quota.
+        """
         with self._connect() as conn:
             conn.executescript(
                 """
@@ -141,7 +179,180 @@ class SQLiteStore:
                 DELETE FROM team_rosters;
                 DELETE FROM match_lineups;
                 DELETE FROM meta;
+                DELETE FROM api_cache;
+                DELETE FROM llm_cache;
                 """
+            )
+
+    # --- raw API payload cache (API-Football) -------------------------------------
+
+    def get_api_payload(self, cache_key: str, ttl_hours: float) -> object | None:
+        """Return a cached JSON payload if younger than `ttl_hours`, else None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload, fetched_at FROM api_cache WHERE cache_key = ?",
+                (cache_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        if _utcnow() - _parse_dt(row["fetched_at"]) >= timedelta(hours=ttl_hours):
+            return None
+        return json.loads(row["payload"])
+
+    def put_api_payload(self, cache_key: str, payload: object) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_cache (cache_key, payload, fetched_at) VALUES (?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    payload = excluded.payload, fetched_at = excluded.fetched_at
+                """,
+                (cache_key, json.dumps(payload, ensure_ascii=False), _utcnow().isoformat()),
+            )
+
+    # --- daily request budget ------------------------------------------------------
+
+    @staticmethod
+    def _today() -> str:
+        return _utcnow().date().isoformat()
+
+    def api_calls_today(self, provider: str) -> tuple[int, bool]:
+        """(requests counted today, day closed by the provider) for a UTC day."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT count, exhausted FROM api_usage WHERE provider = ? AND day = ?",
+                (provider, self._today()),
+            ).fetchone()
+        if row is None:
+            return 0, False
+        return int(row["count"]), bool(row["exhausted"])
+
+    def consume_api_call(self, provider: str, daily_limit: int) -> bool:
+        """Atomically count one request if the daily limit allows it."""
+        day = self._today()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO api_usage (provider, day, count, exhausted) "
+                "VALUES (?, ?, 0, 0)",
+                (provider, day),
+            )
+            cursor = conn.execute(
+                """
+                UPDATE api_usage SET count = count + 1
+                WHERE provider = ? AND day = ? AND exhausted = 0 AND count < ?
+                """,
+                (provider, day, daily_limit),
+            )
+            return cursor.rowcount == 1
+
+    def mark_api_exhausted(self, provider: str) -> None:
+        day = self._today()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_usage (provider, day, count, exhausted) VALUES (?, ?, 0, 1)
+                ON CONFLICT(provider, day) DO UPDATE SET exhausted = 1
+                """,
+                (provider, day),
+            )
+
+    # --- API-Football id mapping ---------------------------------------------------
+
+    def get_af_team(self, fd_team_id: int) -> int | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT af_team_id FROM af_team_map WHERE fd_team_id = ?",
+                (fd_team_id,),
+            ).fetchone()
+        return int(row["af_team_id"]) if row else None
+
+    def upsert_af_team(
+        self,
+        fd_team_id: int,
+        af_team_id: int,
+        *,
+        fd_name: str,
+        af_name: str,
+        method: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO af_team_map
+                    (fd_team_id, af_team_id, fd_name, af_name, method, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fd_team_id) DO UPDATE SET
+                    af_team_id = excluded.af_team_id,
+                    fd_name = excluded.fd_name,
+                    af_name = excluded.af_name,
+                    method = excluded.method,
+                    updated_at = excluded.updated_at
+                """,
+                (fd_team_id, af_team_id, fd_name, af_name, method, _utcnow().isoformat()),
+            )
+
+    def get_af_fixture(self, fd_match_id: int) -> int | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT af_fixture_id FROM af_fixture_map WHERE fd_match_id = ?",
+                (fd_match_id,),
+            ).fetchone()
+        return int(row["af_fixture_id"]) if row else None
+
+    def upsert_af_fixture(
+        self,
+        fd_match_id: int,
+        af_fixture_id: int,
+        *,
+        af_league_id: int,
+        season: int,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO af_fixture_map
+                    (fd_match_id, af_fixture_id, af_league_id, season, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(fd_match_id) DO UPDATE SET
+                    af_fixture_id = excluded.af_fixture_id,
+                    af_league_id = excluded.af_league_id,
+                    season = excluded.season,
+                    updated_at = excluded.updated_at
+                """,
+                (fd_match_id, af_fixture_id, af_league_id, season, _utcnow().isoformat()),
+            )
+
+    # --- LLM answers ---------------------------------------------------------------
+
+    def get_llm(self, cache_key: str, ttl_hours: float = TTL_LLM_HOURS) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload, fetched_at FROM llm_cache WHERE cache_key = ?",
+                (cache_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        if _utcnow() - _parse_dt(row["fetched_at"]) >= timedelta(hours=ttl_hours):
+            return None
+        data = json.loads(row["payload"])
+        return data if isinstance(data, dict) else None
+
+    def put_llm(self, cache_key: str, payload: dict, *, model: str | None = None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO llm_cache (cache_key, model, payload, fetched_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    model = excluded.model,
+                    payload = excluded.payload,
+                    fetched_at = excluded.fetched_at
+                """,
+                (
+                    cache_key,
+                    model,
+                    json.dumps(payload, ensure_ascii=False),
+                    _utcnow().isoformat(),
+                ),
             )
 
     def mark_fetched(self, cache_key: str, etag: str | None = None) -> None:
@@ -521,3 +732,18 @@ def ttl_hours_for_status(status: MatchStatus) -> float:
     if status.is_upcoming():
         return TTL_SCHEDULED_HOURS
     return TTL_FINISHED_HOURS
+
+
+class SQLiteExplanationCache:
+    """ExplanationCache backed by `llm_cache` (structural protocol, no ai import)."""
+
+    def __init__(self, store: SQLiteStore, ttl_hours: float = TTL_LLM_HOURS) -> None:
+        self._store = store
+        self._ttl = ttl_hours
+
+    def get(self, key: str) -> dict | None:
+        return self._store.get_llm(key, self._ttl)
+
+    def put(self, key: str, value: dict) -> None:
+        model = value.get("model") if isinstance(value, dict) else None
+        self._store.put_llm(key, value, model=str(model) if model else None)
