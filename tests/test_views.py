@@ -278,7 +278,7 @@ def _detail(forecast: MatchForecast, **kwargs: object) -> str:
 
 def test_match_detail_ai_loading_state_has_no_not_configured_banner() -> None:
     blob = _detail(_forecast(), ai_state="loading")
-    assert "Готовим AI-разбор" in blob
+    assert "Идёт анализ…" in blob
     assert "AI не настроен" not in blob
 
 

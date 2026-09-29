@@ -18,7 +18,8 @@ NOT_CONFIGURED_TEXT = (
     "AI не настроен. Добавьте OLLAMA_API_KEY в Настройках или укажите локальный "
     "OLLAMA_HOST — числа уже посчитаны локально."
 )
-LOADING_TEXT = "Готовим AI-разбор факторов…"
+LOADING_TEXT = "Идёт анализ…"
+LOADING_HINT = "Статистический прогноз уже готов выше, AI-разбор придёт в фоне."
 
 _DIRECTION_ICON = {
     "up": (ft.Icons.ARROW_UPWARD, ACCENT),
@@ -153,14 +154,23 @@ def ai_block(
     if state == AI_READY and forecast.explanation is not None:
         content.extend(_analysis(forecast.explanation, forecast, window_width))
     elif state == AI_LOADING:
-        content.append(
-            ft.Row(
-                [
-                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                    ft.Text(LOADING_TEXT, size=scaled(13, window_width), color=MUTED),
-                ],
-                spacing=10,
-            )
+        content.extend(
+            [
+                ft.Row(
+                    [
+                        ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                        ft.Text(
+                            LOADING_TEXT,
+                            size=scaled(13, window_width),
+                            color=FG,
+                            weight=ft.FontWeight.W_600,
+                        ),
+                    ],
+                    spacing=10,
+                ),
+                ft.ProgressBar(color=ACCENT, bgcolor=ft.Colors.with_opacity(0.15, ACCENT)),
+                ft.Text(LOADING_HINT, size=scaled(12, window_width), color=MUTED),
+            ]
         )
     elif state == AI_ERROR:
         message = forecast.explanation_error or ai_error or "неизвестная ошибка"

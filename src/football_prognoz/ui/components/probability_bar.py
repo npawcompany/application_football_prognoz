@@ -445,6 +445,8 @@ def preliminary_score_card(
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
     body: ft.Control
+    # Never wrap=True here: a wrapping Row becomes a Flutter Wrap, and Wrap children
+    # cannot be Expanded -> release builds paint a grey error box (the "grey screen").
     if compact:
         body = ft.Column([board, meters], spacing=14, tight=True)
     else:
@@ -456,8 +458,6 @@ def preliminary_score_card(
             ],
             spacing=20,
             vertical_alignment=ft.CrossAxisAlignment.START,
-            wrap=True,
-            run_spacing=12,
         )
     return apply_motion(
         ft.Container(
