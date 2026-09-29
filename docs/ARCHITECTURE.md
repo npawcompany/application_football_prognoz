@@ -33,10 +33,15 @@ ui  -->  services.factory (build_service: сборка клиентов по Set
    - `PlayerStatusService` (только с `API_FOOTBALL_KEY`) — травмы, дисквалификации, красные карточки, составы;
    - `NewsService` — свежие заголовки о командах: GNews по ключу, иначе RSS спортивных изданий (`NEWS_RSS_ENABLED`);
    - `FactsService` собирает пакет фактов: Elo, форма, дом/выезд, тренд голов, таблица, H2H, дни отдыха, состав;
-   - `Explainer` отправляет пакет в Ollama (`POST /api/chat`, JSON-ответ), проверяет ответ (фаворит совпадает с расчётом, уверенность не выше потолка, нет «гарантий») и кэширует его.
-5. UI: блок AI в одном из состояний — «загрузка», «ошибка», «не настроен», «готово». Вероятности LLM не меняет никогда.
+   - `attach_markets` строит «Таблицу ставок» (`models/markets`: сетка Пуассона, согласованная с 1X2; угловые/карточки/фолы/пенальти — из статистики API-Football), `attach_saved_analyses` подставляет сохранённые ответы LLM из SQLite;
+   - `Explainer` отправляет пакет и таблицу рынков в Ollama (`POST /api/chat`, JSON-ответ), проверяет ответ (фаворит совпадает с расчётом, уверенность не выше потолка, нет «гарантий», рынки существуют в таблице, ровно 3 «обоснованных») и сохраняет его;
+   - `NewsSummarizer` делает «Итог по новостям» только по пронумерованным заголовкам.
+   Вызовы LLM подчиняются `services/llm_policy` (завершённый матч — никогда, не чаще раза в 12 ч, после 12 ч — фоновое обновление), см. FORECAST.md §5I.
+5. UI: блок AI в одном из состояний — «загрузка», «ошибка», «не настроен», «готово», «заметка» (матч сыгран, разбор не сохранён); под ответом «Сгенерировано …, модель X» и уведомление о запасной модели после 402. Вероятности LLM не меняет никогда.
 
 ## Экраны
+
+Фон всего окна (заставка, замок ключей, все разделы) — диагональный градиент navy → teal → зелёный газон с едва заметной разметкой поля (`theme.app_decoration`, картинка `assets/bg_pattern.png`). Панели прозрачные, карточки непрозрачные (`CARD`, `SURFACE`), поэтому контраст текста не зависит от места на градиенте; тест `tests/test_theme_contrast.py` проверяет WCAG AA (4,5:1) для всех цветов текста на всех поверхностях.
 
 - **Запуск.** Заставка (крутящийся мяч, полоса загрузки) держится не меньше 3 с и дольше, пока фоновая загрузка не закончилась (`services/startup.SplashTimer`). Навигация на заставке не работает.
 - **Замок ключей** (`services/startup.KeyGate`). Обязательный ключ один — `FOOTBALL_DATA_API_KEY`: календарь, лиги и прогноз строятся из его данных. Ollama, API-Football и GNews дают только дополнительные блоки. Если ключа нет или football-data.org ответил 400/401/403, после заставки открываются Настройки, остальные разделы закрыты. После «Сохранить» ключ проверяется одним запросом (`MatchService.check_key`); принят — разделы открываются без перезапуска. Нет сети — ключ нельзя опровергнуть, поэтому замок снимается, данные берутся из кэша.
@@ -54,8 +59,8 @@ ui  -->  services.factory (build_service: сборка клиентов по Set
 - TTL по умолчанию: 6 часов для `SCHEDULED`, 24 часа для `FINISHED` и таблиц.
 - Повторный запрос к API только если кэш старше TTL или записи нет.
 - Rate limit: не чаще 10 запросов в минуту (свободный план football-data.org), 10 в минуту и 90 в сутки для API-Football.
-- Таблицы: `matches`, `standings`, `meta` (football-data.org); `api_cache` (ответы API-Football, GNews и RSS с TTL), `api_usage` (суточные счётчики запросов API-Football и GNews), `af_team_map` / `af_fixture_map` (сопоставление id), `llm_cache` (ответы LLM, 12 ч), `forecast_history` (история прогнозов для обучения и оценки, ключ `match_id + model_version`).
-- «Очистить кэш» удаляет `api_cache` и `llm_cache`, но не сопоставления, не счётчик расхода и не `forecast_history`.
+- Таблицы: `matches`, `standings`, `meta` (football-data.org); `api_cache` (ответы API-Football, GNews и RSS с TTL), `api_usage` (суточные счётчики запросов API-Football и GNews), `af_team_map` / `af_fixture_map` (сопоставление id), `llm_cache` (ответы LLM, 12 ч), `llm_analyses` (сохранённые AI-разборы и итоги новостей по матчам, см. FORECAST.md §5I), `forecast_history` (история прогнозов для обучения и оценки, ключ `match_id + model_version`).
+- «Очистить кэш» удаляет `api_cache` и `llm_cache`, но не сопоставления, не счётчик расхода, не `llm_analyses` и не `forecast_history`.
 
 ## Фоновые задачи
 
@@ -79,4 +84,4 @@ ui  -->  services.factory (build_service: сборка клиентов по Set
 3. `FLET_APP_STORAGE_DATA` в собранном `flet build` приложении;
 4. папка данных пользователя ОС (`%APPDATA%`, `~/Library/Application Support`, `$XDG_DATA_HOME`) с подпапкой `FootballPrognoz`.
 
-Относительный `DATABASE_PATH` считается от `APP_HOME`. Ассеты (гербы, флаги) лежат в `src/assets/` — `flet build` с `path = "src"` кладёт их в сборку (`config.ASSETS_DIR`). `scripts/train.py` импортирует CSV football-data.co.uk в отдельную базу (`data/cache/train.db`, `--db`), а не в кэш приложения: у CSV другие id команд.
+Относительный `DATABASE_PATH` считается от `APP_HOME`. Точка входа для `flet build` / `flet run` — `src/main.py` (вызывает `football_prognoz.main.run`); сборка под все платформы — [BUILD.md](BUILD.md). Ассеты (гербы, флаги) лежат в `src/assets/` — `flet build` с `path = "src"` кладёт их в сборку (`config.ASSETS_DIR`). `scripts/train.py` импортирует CSV football-data.co.uk в отдельную базу (`data/cache/train.db`, `--db`), а не в кэш приложения: у CSV другие id команд.

@@ -27,8 +27,8 @@ Flet (окно приложения), httpx, pandas, SQLite, Elo + Poisson. LLM 
 |---|---|---|
 | `OLLAMA_API_KEY` | пусто | Ключ Ollama Cloud. Пусто и облачный хост = AI-разбор выключен |
 | `OLLAMA_HOST` | `https://ollama.com` | Для локального Ollama: `http://127.0.0.1:11434` (ключ не нужен) |
-| `OLLAMA_MODEL` | `deepseek-v4.1-flash` | Основная модель разбора |
-| `OLLAMA_FALLBACK_MODEL` | `gpt-oss:120b` | Одна повторная попытка при 404/5xx/пустом ответе |
+| `OLLAMA_MODEL` | `gpt-oss:120b` | Основная модель разбора (выпадающий список в Настройках; `gpt-oss` — бесплатный тариф) |
+| `OLLAMA_FALLBACK_MODEL` | `gpt-oss:20b` | Запасная модель при 402 (не входит в тариф), 404, 5xx; затем бесплатные `gpt-oss` |
 | `API_FOOTBALL_KEY` | пусто | Блок «Состав и доступность». Пусто = 0 запросов |
 | `GNEWS_API_KEY` | пусто | Новости команд через [GNews](https://gnews.io) (≤ 80 запросов/сутки, кэш 6 ч) |
 | `NEWS_RSS_ENABLED` | `true` | Новости из RSS BBC Sport, Guardian, Sky Sports, ESPN без ключа (кэш 1 ч) |
@@ -66,13 +66,18 @@ pytest
 
 Тесты ходят только в фикстуры `data/samples/`, без живого API.
 
-## Сборка установщиков
+## Сборка приложения (Windows, macOS, Linux, Android, iOS, web)
 
-Собирать **только на целевой ОС** (Windows-сборку не делать на Linux, macOS-сборку — только на Mac). Нужен установленный Flutter/Flet CLI по [доке Flet](https://flet.dev/docs/publish/windows/).
+Подробная инструкция с командами и требованиями для каждой платформы: [docs/BUILD.md](docs/BUILD.md). Коротко:
 
 ```bash
-flet build windows --product "Football Prognoz" --company "Football Prognoz"
-flet build macos --product "Football Prognoz" --org com.footballprognoz --bundle-id com.footballprognoz.app
+pip install -e ".[dev]"      # включает flet-cli
+flet build macos             # на Mac (Xcode)
+flet build windows           # на Windows (Visual Studio с C++)
+flet build linux             # на Linux
+flet build apk               # Android SDK + JDK 17
+flet build ipa               # на Mac, Xcode + Apple Developer
+flet build web               # статический сайт (ограничения — в BUILD.md)
 ```
 
-Конфигурация сборки: секция `[tool.flet]` в `pyproject.toml`.
+Настройки сборки (название, bundle id `com.npawcompany.footballprognoz`, иконка, splash, разрешения) — секция `[tool.flet]` в `pyproject.toml`. Иконка и фон генерируются скриптом `python scripts/make_assets.py`.
