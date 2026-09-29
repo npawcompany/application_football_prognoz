@@ -57,6 +57,7 @@ class ForecastRecord:
     actual_outcome: str | None = None
     is_correct: bool | None = None
     result_updated_at: datetime | None = None
+    markets: dict[str, Any] | None = None  # MarketsTable.to_json() at forecast time
 
     @property
     def actual_score(self) -> str | None:

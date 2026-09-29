@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from football_prognoz.domain.history import HistoricalHint
+from football_prognoz.domain.markets import CONFIDENCE_LABELS, MarketsTable
+from football_prognoz.domain.markets import CONFIDENCE_LEVELS as CONFIDENCE_LEVELS
 from football_prognoz.domain.match import Match, MatchLineup
-from football_prognoz.domain.news import NewsReport
+from football_prognoz.domain.news import NewsReport, NewsSummary
 from football_prognoz.domain.player_status import PlayerStatusReport
 from football_prognoz.domain.team import StandingRow, TeamRoster
-
-CONFIDENCE_LEVELS = ("low", "medium", "high")
-CONFIDENCE_LABELS = {"low": "низкая", "medium": "средняя", "high": "высокая"}
 
 
 @dataclass(frozen=True)
@@ -95,6 +95,14 @@ class FactsPackage:
 
 
 @dataclass(frozen=True)
+class MarketComment:
+    """LLM text about one row of the markets table; `market` is a `Market.key`."""
+
+    market: str
+    comment: str
+
+
+@dataclass(frozen=True)
 class Explanation:
     """LLM analysis. `text` is the short summary; probabilities stay untouched."""
 
@@ -106,6 +114,11 @@ class Explanation:
     confidence: str = ""  # one of CONFIDENCE_LEVELS or "" for legacy plain text
     confidence_reason: str = ""
     sources: tuple[str, ...] = ()
+    market_comments: tuple[MarketComment, ...] = ()
+    top_markets: tuple[MarketComment, ...] = ()  # the 3 best-grounded markets + why
+    risks: tuple[str, ...] = ()
+    notice: str = ""  # e.g. which fallback model answered after HTTP 402
+    generated_at: datetime | None = None  # when it was generated (saved in SQLite)
 
     @property
     def confidence_label(self) -> str:
@@ -126,6 +139,15 @@ class MatchForecast:
     news: NewsReport | None = None
     history_hint: HistoricalHint | None = None
     explanation_error: str | None = None
+    markets: MarketsTable | None = None
+    # LLM caching policy (services/llm_policy): plan + honest notes for the UI.
+    analysis_plan: str = ""
+    analysis_note: str = ""  # e.g. «AI-разбор не сохранён, матч уже сыгран.»
+    analysis_refresh_error: str = ""  # refresh failed; the saved analysis stays
+    news_summary: NewsSummary | None = None
+    news_plan: str = ""
+    news_note: str = ""  # «Итог недоступен: нет ключа Ollama» etc.
+    news_summary_error: str = ""
     sources: tuple[str, ...] = field(default_factory=tuple)
 
 

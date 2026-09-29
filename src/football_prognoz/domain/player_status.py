@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from football_prognoz.domain.markets import TeamSetPieces
+
 
 @dataclass(frozen=True)
 class Absence:
@@ -92,10 +94,16 @@ class TeamStatus:
     transfers: tuple[Transfer, ...] = ()
     lineup: FixtureLineup | None = None
     top_ratings: tuple[PlayerRating, ...] = ()
+    set_pieces: TeamSetPieces | None = None  # corners / cards / fouls / penalties averages
 
     def is_empty(self) -> bool:
         return not (
-            self.absences or self.red_cards or self.transfers or self.lineup or self.top_ratings
+            self.absences
+            or self.red_cards
+            or self.transfers
+            or self.lineup
+            or self.top_ratings
+            or self.set_pieces
         )
 
 
