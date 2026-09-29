@@ -8,15 +8,32 @@
 
 ## Стек
 
-Flet (окно приложения), httpx, pandas, SQLite, Elo + Poisson. LLM (OpenAI или Ollama) только объясняет уже посчитанные вероятности.
+Flet (окно приложения), httpx, pandas, SQLite, Elo + Poisson. LLM (Ollama Cloud или локальный Ollama) только объясняет уже посчитанные вероятности и никогда их не меняет.
 
-Данные: [football-data.org](https://www.football-data.org/) (календарь и результаты) и [football-data.co.uk](https://www.football-data.co.uk/data.php) (длинные CSV).
+Данные: [football-data.org](https://www.football-data.org/) (календарь и результаты), [football-data.co.uk](https://www.football-data.co.uk/data.php) (длинные CSV) и опционально [API-Football v3](https://www.api-football.com/documentation-v3) (травмы, дисквалификации, карточки, составы).
 
 ## Требования
 
 - Python 3.11+
 - Ключ [football-data.org](https://www.football-data.org/client/register) (бесплатный план)
-- Опционально: ключ OpenAI или локальный Ollama
+- Опционально: ключ [Ollama Cloud](https://ollama.com/settings/keys) или локальный Ollama
+- Опционально: ключ [API-Football](https://dashboard.api-football.com/register) (бесплатно 100 запросов в сутки)
+
+## Настройка AI и API-Football
+
+Все ключи вводятся в разделе **Настройки** (или в `.env`) и применяются сразу после «Сохранить», без перезапуска.
+
+| Переменная | По умолчанию | Зачем |
+|---|---|---|
+| `OLLAMA_API_KEY` | пусто | Ключ Ollama Cloud. Пусто и облачный хост = AI-разбор выключен |
+| `OLLAMA_HOST` | `https://ollama.com` | Для локального Ollama: `http://127.0.0.1:11434` (ключ не нужен) |
+| `OLLAMA_MODEL` | `gpt-oss:120b` | Основная модель разбора (выпадающий список в Настройках; `gpt-oss` — бесплатный тариф) |
+| `OLLAMA_FALLBACK_MODEL` | `gpt-oss:20b` | Запасная модель при 402 (не входит в тариф), 404, 5xx; затем бесплатные `gpt-oss` |
+| `API_FOOTBALL_KEY` | пусто | Блок «Состав и доступность». Пусто = 0 запросов |
+| `GNEWS_API_KEY` | пусто | Новости команд через [GNews](https://gnews.io) (≤ 80 запросов/сутки, кэш 6 ч) |
+| `NEWS_RSS_ENABLED` | `true` | Новости из RSS BBC Sport, Guardian, Sky Sports, ESPN без ключа (кэш 1 ч) |
+
+API-Football расходует не больше 90 запросов в сутки (счётчик в SQLite), ответы кэшируются. На бесплатном плане текущий сезон может быть недоступен — тогда блок показывает заметку, прогноз не ломается.
 
 ## Запуск
 
@@ -28,12 +45,18 @@ cp .env.example .env        # впишите FOOTBALL_DATA_API_KEY
 python -m football_prognoz
 ```
 
+При первом запуске без ключа football-data.org приложение после заставки открывает Настройки и не пускает в другие разделы, пока ключ не сохранён и не принят (остальные ключи необязательны). Собранное через `flet build` приложение хранит `.env`, кэш и экспорт в папке данных пользователя (или в `FOOTBALL_PROGNOZ_HOME`), см. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) «Пути».
+
 С `uv`:
 
 ```bash
 uv sync --extra dev
 uv run python -m football_prognoz
 ```
+
+## Данные для обучения и оценка качества (ВКР §3.3)
+
+В **Настройках → «Данные для обучения»** кнопка «Собрать данные для обучения» в фоне сохраняет прогнозы матчей выбранных лиг (±14 дней) в таблицу `forecast_history`, на следующих запусках проставляет реальные счета. Прогноз до матча после начала не перезаписывается. Там же — сводка точности, Brier, log-loss, калибровки и «Сохранить историю в CSV…» (системное окно выбора файла; без него — `data/exports/`). Из консоли: `python scripts/export_forecast_history.py`. Подробно: [docs/FORECAST.md](docs/FORECAST.md) §5F–5G.
 
 ## Тесты
 
@@ -43,13 +66,18 @@ pytest
 
 Тесты ходят только в фикстуры `data/samples/`, без живого API.
 
-## Сборка установщиков
+## Сборка приложения (Windows, macOS, Linux, Android, iOS, web)
 
-Собирать **только на целевой ОС** (Windows-сборку не делать на Linux, macOS-сборку — только на Mac). Нужен установленный Flutter/Flet CLI по [доке Flet](https://flet.dev/docs/publish/windows/).
+Подробная инструкция с командами и требованиями для каждой платформы: [docs/BUILD.md](docs/BUILD.md). Коротко:
 
 ```bash
-flet build windows --product "Football Prognoz" --company "Football Prognoz"
-flet build macos --product "Football Prognoz" --org com.footballprognoz --bundle-id com.footballprognoz.app
+pip install -e ".[dev]"      # включает flet-cli
+flet build macos             # на Mac (Xcode)
+flet build windows           # на Windows (Visual Studio с C++)
+flet build linux             # на Linux
+flet build apk               # Android SDK + JDK 17
+flet build ipa               # на Mac, Xcode + Apple Developer
+flet build web               # статический сайт (ограничения — в BUILD.md)
 ```
 
-Конфигурация сборки: секция `[tool.flet]` в `pyproject.toml`.
+Настройки сборки (название, bundle id `com.npawcompany.footballprognoz`, иконка, splash, разрешения) — секция `[tool.flet]` в `pyproject.toml`. Иконка и фон генерируются скриптом `python scripts/make_assets.py`.

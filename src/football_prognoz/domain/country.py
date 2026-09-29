@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 # Codes match lipis/flag-icons `flags/4x3/{code}.svg` (ISO 3166-1 alpha-2,
 # plus gb-eng / gb-sct / gb-wls / gb-nir for Home Nations).
 _NAME_TO_CODE: dict[str, str] = {
@@ -280,6 +282,7 @@ _COMPETITION_COUNTRY: dict[str, str] = {
     "BSA": "Brazil",
     "CL": "Europe",
     "EC": "Europe",
+    "WC": "World",
 }
 
 
@@ -287,3 +290,67 @@ def competition_country(code: str | None) -> str | None:
     if not code:
         return None
     return _COMPETITION_COUNTRY.get(code.strip().upper())
+
+
+# Areas without a country flag. football-data.org serves no `area.flag` for World.
+_WORLD_NAMES = frozenset({"world", "international", "worldwide", "мир"})
+_WORLD_CODES = frozenset({"INT", "WLD", "WOR"})
+_CONTINENT_NAMES = frozenset(
+    {"africa", "asia", "south america", "north america", "oceania", "n/c america"}
+)
+_EUROPE_NAMES = frozenset({"europe", "европа"})
+_EUROPE_CODES = frozenset({"EUR", "EU", "UEFA"})
+
+FLAG_ICON_GLOBE = "globe"
+FLAG_ICON_UNKNOWN = "flag"
+
+
+@dataclass(frozen=True)
+class FlagSource:
+    """How to draw the flag of an area: remote URL, bundled asset code, fallback icon.
+
+    The UI shows `url` first (football-data.org `area.flag`, cached by the image
+    cache), with the bundled `asset` as the error/offline fallback, and `icon` when
+    there is neither (World and continents: a globe; unknown names: a flag outline).
+    """
+
+    url: str | None = None
+    asset: str | None = None
+    icon: str | None = None
+
+    @property
+    def empty(self) -> bool:
+        return not (self.url or self.asset or self.icon)
+
+
+def _key(name: str | None) -> str:
+    return " ".join((name or "").replace("_", " ").split()).casefold()
+
+
+def is_world_area(name: str | None, iso3: str | None = None) -> bool:
+    code = (iso3 or "").strip().upper()
+    return code in _WORLD_CODES or _key(name) in _WORLD_NAMES
+
+
+def resolve_flag(
+    name: str | None,
+    *,
+    iso3: str | None = None,
+    flag_url: str | None = None,
+) -> FlagSource:
+    """Every area gets a mark: flag URL, bundled flag, globe (World) or flag icon."""
+    url = (flag_url or "").strip() or None
+    if url is not None and not url.startswith(("http://", "https://")):
+        url = None
+    key = _key(name)
+    code = (iso3 or "").strip().upper()
+    if not key and not code and url is None:
+        return FlagSource()
+    if is_world_area(name, iso3) or key in _CONTINENT_NAMES:
+        return FlagSource(url=url, icon=FLAG_ICON_GLOBE)
+    if key in _EUROPE_NAMES or code in _EUROPE_CODES:
+        return FlagSource(url=url, asset="eu")
+    asset = flag_code(name, iso3=iso3)
+    if url is None and asset is None:
+        return FlagSource(icon=FLAG_ICON_UNKNOWN)
+    return FlagSource(url=url, asset=asset)

@@ -1,0 +1,74 @@
+{
+  "get": "sidelined",
+  "parameters": {
+    "players": "276-278"
+  },
+  "errors": [],
+  "results": 2,
+  "paging": {
+    "current": 1,
+    "total": 1
+  },
+  "response": [
+    {
+      "id": 276,
+      "sidelined": [
+        {
+          "type": "Virus",
+          "start": "2023-08-10",
+          "end": "2023-08-15"
+        },
+        {
+          "type": "Ankle Injury",
+          "start": "2023-02-20",
+          "end": "2023-06-30"
+        },
+        {
+          "type": "Groin Injury",
+          "start": "2023-01-31",
+          "end": "2023-02-07"
+        },
+        {
+          "type": "Suspended",
+          "start": "2022-12-29",
+          "end": "2023-01-03"
+        },
+        {
+          "type": "Ankle/Foot Injury",
+          "start": "2022-11-25",
+          "end": "2022-12-03"
+        }
+      ]
+    },
+    {
+      "id": 278,
+      "sidelined": [
+        {
+          "type": "Unknown",
+          "start": "2024-11-28",
+          "end": "2024-11-29"
+        },
+        {
+          "type": "Hamstring",
+          "start": "2024-09-25",
+          "end": "2024-09-30"
+        },
+        {
+          "type": "Broken Nose",
+          "start": "2024-06-18",
+          "end": "2024-06-19"
+        },
+        {
+          "type": "Virus",
+          "start": "2024-06-13",
+          "end": "2024-06-14"
+        },
+        {
+          "type": "Thigh Injury",
+          "start": "2023-02-02",
+          "end": "2023-02-13"
+        }
+      ]
+    }
+  ]
+}

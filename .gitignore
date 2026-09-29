@@ -222,6 +222,7 @@ data/cache/*
 !data/cache/.gitkeep
 data/csv/*
 !data/csv/.gitkeep
+data/exports/
 *.db
 *.db-journal
 

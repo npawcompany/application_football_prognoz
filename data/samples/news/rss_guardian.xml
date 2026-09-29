@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:media="http://search.yahoo.com/mrss/" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+  <channel>
+    <title>Football | The Guardian</title>
+    <link>https://www.theguardian.com/football</link>
+    <description>Latest Football news</description>
+    <item>
+      <title>Guardiola: Manchester City must cope without key men</title>
+      <link>https://www.theguardian.com/football/2026/sep/25/sample-guardiola</link>
+      <description>&lt;p&gt;Pep Guardiola says &lt;strong&gt;Manchester City&lt;/strong&gt; can handle absences.&lt;/p&gt; &lt;a href="https://www.theguardian.com/football/2026/sep/25/sample-guardiola"&gt;Continue reading...&lt;/a&gt;</description>
+      <category domain="https://www.theguardian.com/football/manchestercity">Manchester City</category>
+      <pubDate>Fri, 25 Sep 2026 08:30:00 GMT</pubDate>
+      <guid>https://www.theguardian.com/football/2026/sep/25/sample-guardiola</guid>
+    </item>
+    <item>
+      <title>Arsenalistas celebrate in Lisbon</title>
+      <link>https://www.theguardian.com/football/2026/sep/25/sample-noise</link>
+      <description>Whole-word matching check.</description>
+      <pubDate>Fri, 25 Sep 2026 07:00:00 GMT</pubDate>
+      <guid>https://www.theguardian.com/football/2026/sep/25/sample-noise</guid>
+    </item>
+  </channel>
+</rss>

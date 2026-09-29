@@ -31,9 +31,7 @@ def test_probability_tiles_fill_width_matches_percent() -> None:
     fills = [
         node
         for node in _walk(view)
-        if isinstance(node, ft.Container)
-        and isinstance(node.data, dict)
-        and "fill" in node.data
+        if isinstance(node, ft.Container) and isinstance(node.data, dict) and "fill" in node.data
     ]
     assert [round(node.data["fill"], 2) for node in fills] == [0.75, 0.13, 0.12]
     bars = [node for node in _walk(view) if isinstance(node, ft.ProgressBar)]

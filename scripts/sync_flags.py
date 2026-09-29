@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Download lipis/flag-icons 4x3 SVGs into assets/flags/.
+"""Download lipis/flag-icons 4x3 SVGs into src/assets/flags/.
 
 Source: https://github.com/lipis/flag-icons (MIT). Live HTTP only in this
-script — the UI reads bundled files from assets/flags/.
+script — the UI reads bundled files from src/assets/flags/.
 """
 
 from __future__ import annotations
@@ -12,11 +12,11 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
-from football_prognoz.config import ROOT_DIR
+from football_prognoz.config import ASSETS_DIR
 
 TAG = "7.5.0"
 ARCHIVE = f"https://github.com/lipis/flag-icons/archive/refs/tags/v{TAG}.tar.gz"
-DEST = ROOT_DIR / "assets" / "flags"
+DEST = ASSETS_DIR / "flags"
 PREFIX = f"flag-icons-{TAG}/flags/4x3/"
 
 

@@ -43,7 +43,8 @@
 
 ### Этап 3 — LLM
 
-- Официальные docs OpenAI Chat Completions **или** Ollama generate.
+- Официальные docs Ollama: `/api/chat`, облачный доступ (ollama.com, Bearer-ключ), `format: json`.
+- API-Football v3: OpenAPI-спецификация, заголовок `x-apisports-key`, лимиты плана.
 - Ключи и биллинг — из их документации.
 - Промпт принимает только факты + вероятности.
 

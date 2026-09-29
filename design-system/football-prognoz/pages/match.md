@@ -34,6 +34,6 @@ Equal height tiles in a row (`height` scaled, 4/2/1 columns). Form labels use th
 Card **Состав и тренер** from `GET /v4/teams/{id}` (cached 24h). Coach first, then players by position. Status line = role + nationality + age. No invented injuries.
 
 ## AI block
-Heading **AI-пояснение**. Body text or muted banner if no OpenAI key: numbers already computed locally.
+Heading **AI-разбор факторов**. States: loading, error, not configured (muted banner: numbers already computed locally), ready (factors per side, verdict, confidence, model).
 
 Disclaimer always visible.

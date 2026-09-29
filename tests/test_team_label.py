@@ -137,7 +137,7 @@ def test_form_pills_colors_and_empty_dash() -> None:
 
     row = form_pills("WDL")
     assert isinstance(row, ft.Row)
-    assert [chip.bgcolor for chip in row.controls] == ["#22C55E", "#F59E0B", "#EF4444"]
+    assert [chip.bgcolor for chip in row.controls] == ["#22C55E", "#F59E0B", "#F87171"]
     assert [chip.width for chip in row.controls] == [22, 22, 22]
     assert row.controls[0].content.color == "#0F172A"
 

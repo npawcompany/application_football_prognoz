@@ -78,9 +78,7 @@ def test_squad_card_lists_coach_and_marks_venues(team_payload: dict) -> None:
     )
     view = squad_card(home, away, compact=True, home_elo=1600.0, away_elo=1580.0)
     blob = " ".join(
-        str(getattr(node, "value", "") or "")
-        for node in _walk(view)
-        if isinstance(node, ft.Text)
+        str(getattr(node, "value", "") or "") for node in _walk(view) if isinstance(node, ft.Text)
     )
     assert "Состав и тренер" in blob
     assert "Mikel Arteta" in blob
@@ -109,14 +107,10 @@ def test_preliminary_score_underlines_winner_only() -> None:
     win = preliminary_score_card(Scoreline(2, 1, 0.18, 1.9, 1.1), match)
     draw = preliminary_score_card(Scoreline(1, 1, 0.14, 1.5, 1.5), match)
     win_home = [
-        node.style
-        for node in _walk(win)
-        if isinstance(node, ft.Text) and node.value == "Arsenal"
+        node.style for node in _walk(win) if isinstance(node, ft.Text) and node.value == "Arsenal"
     ]
     win_away = [
-        node.style
-        for node in _walk(win)
-        if isinstance(node, ft.Text) and node.value == "Man City"
+        node.style for node in _walk(win) if isinstance(node, ft.Text) and node.value == "Man City"
     ]
     draw_styles = [
         node.style
@@ -124,12 +118,10 @@ def test_preliminary_score_underlines_winner_only() -> None:
         if isinstance(node, ft.Text) and node.value in {"Arsenal", "Man City"}
     ]
     assert any(
-        style is not None and style.decoration == ft.TextDecoration.UNDERLINE
-        for style in win_home
+        style is not None and style.decoration == ft.TextDecoration.UNDERLINE for style in win_home
     )
     assert not any(
-        style is not None and style.decoration == ft.TextDecoration.UNDERLINE
-        for style in win_away
+        style is not None and style.decoration == ft.TextDecoration.UNDERLINE for style in win_away
     )
     assert not any(
         style is not None and style.decoration == ft.TextDecoration.UNDERLINE

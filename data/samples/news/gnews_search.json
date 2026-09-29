@@ -1,0 +1,38 @@
+{
+  "totalArticles": 3,
+  "articles": [
+    {
+      "id": "a1f0c3d2e4b5",
+      "title": "Arsenal sweat on Saka fitness after hamstring injury",
+      "description": "Bukayo Saka is a doubt for Arsenal's clash with Manchester City after limping off with a hamstring problem.",
+      "content": "Bukayo Saka is a doubt ... [1200 chars]",
+      "url": "https://example.com/football/arsenal-saka-hamstring",
+      "image": "https://example.com/img/saka.jpg",
+      "publishedAt": "2026-09-24T09:15:00Z",
+      "lang": "en",
+      "source": {"id": "src1", "name": "Example Sport", "url": "https://example.com", "country": "gb"}
+    },
+    {
+      "id": "b2e1d4c3f5a6",
+      "title": "Arteta: Arsenal ready for title test",
+      "description": "Mikel Arteta says his Arsenal squad is ready for the visit of the champions.",
+      "content": "Mikel Arteta says ... [900 chars]",
+      "url": "https://example.com/football/arteta-title-test",
+      "image": null,
+      "publishedAt": "2026-09-25T12:00:00Z",
+      "lang": "en",
+      "source": {"id": "src2", "name": "Example News", "url": "https://example.org", "country": "gb"}
+    },
+    {
+      "id": "c3f2e5d4a6b7",
+      "title": "Old Arsenal story from last month",
+      "description": "Too old for the 7-day window.",
+      "content": "...",
+      "url": "https://example.com/football/old",
+      "image": null,
+      "publishedAt": "2026-08-01T12:00:00Z",
+      "lang": "en",
+      "source": {"id": "src1", "name": "Example Sport", "url": "https://example.com", "country": "gb"}
+    }
+  ]
+}

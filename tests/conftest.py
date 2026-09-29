@@ -58,3 +58,14 @@ def teams_payload() -> dict:
             },
         ],
     }
+
+
+@pytest.fixture(autouse=True)
+def _no_live_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never hit live APIs: any real httpx transport call fails loudly."""
+    import httpx
+
+    def _blocked(self, request):  # noqa: ANN001, ANN202
+        raise AssertionError(f"live HTTP in tests: {request.method} {request.url}")
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", _blocked)

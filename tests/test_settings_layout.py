@@ -101,11 +101,30 @@ def test_wide_layout_is_row_with_aside() -> None:
     assert _aside(view) in list(_walk(layout))
 
 
-def test_narrow_layout_is_column_form_then_aside() -> None:
+def test_narrow_layout_is_one_scrolling_column_with_aside_last() -> None:
     root = _column(_build(BREAKPOINT_MEDIUM - 1))
     layout = root.controls[1]
-    assert isinstance(layout, ft.Column)
-    assert layout.controls[1] is _aside(root)
+    scroller = layout.content
+    assert isinstance(scroller, ft.ListView)
+    assert scroller.controls[-1] is _aside(root)
+
+
+def test_very_wide_layout_uses_three_columns_and_a_fixed_action_bar() -> None:
+    from football_prognoz.ui.views.settings import SETTINGS_THREE_COLUMNS
+
+    root = _column(_build(SETTINGS_THREE_COLUMNS))
+    layout = root.controls[1]
+    assert isinstance(layout, ft.Row) and len(layout.controls) == 3
+    titles = [
+        node.value
+        for node in _walk(layout.controls[1])
+        if isinstance(node, ft.Text) and node.value in {"Избранное", "Запуск и интерфейс"}
+    ]
+    assert titles == ["Избранное", "Запуск и интерфейс"]
+    bar = root.controls[-1]
+    assert any(
+        isinstance(node, ft.FilledButton) and node.content == "Сохранить" for node in _walk(bar)
+    )
 
 
 def test_labels_are_separate_from_fields() -> None:

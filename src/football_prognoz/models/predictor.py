@@ -7,6 +7,8 @@ from football_prognoz.domain.prediction import MatchFeatures, Probabilities, Sco
 from football_prognoz.models.elo import elo_1x2
 
 MAX_GOALS = 8
+# Bump when the 1X2 formula or its inputs change: forecast_history is keyed by it.
+MODEL_VERSION = "elo-poisson-v1"
 LEAGUE_AVG_GOALS = 1.35
 
 
@@ -69,6 +71,22 @@ def poisson_mode(lam_home: float, lam_away: float) -> Scoreline:
     )
 
 
+def top_scorelines(lam_home: float, lam_away: float, n: int = 3) -> list[Scoreline]:
+    """The `n` most likely exact scores on the same grid as `poisson_mode`."""
+    cells = []
+    total = 0.0
+    for i in range(MAX_GOALS + 1):
+        for j in range(MAX_GOALS + 1):
+            p = poisson_pmf(i, lam_home) * poisson_pmf(j, lam_away)
+            total += p
+            cells.append((p, i, j))
+    cells.sort(key=lambda cell: (-cell[0], (cell[1] - lam_home) ** 2 + (cell[2] - lam_away) ** 2))
+    return [
+        Scoreline(i, j, p / total if total > 0 else 0.0, lam_home, lam_away)
+        for p, i, j in cells[:n]
+    ]
+
+
 def _blend(a: Probabilities, b: Probabilities, weight_a: float) -> Probabilities:
     w = min(1.0, max(0.0, weight_a))
     return Probabilities(
@@ -86,20 +104,29 @@ def _lambda(attack: float, defense: float, elo_shift: float) -> float:
 class Predictor:
     """Elo + independent Poisson blend. Deterministic given the same features."""
 
+    def goal_lambdas(self, features: MatchFeatures) -> tuple[float, float]:
+        """Expected goals of the Poisson part (Elo shift with +80 home advantage).
+
+        With fewer than 4 cached matches attack/defence are unknown, so both sides get
+        the league average shifted by Elo only (used by the markets table).
+        """
+        elo_diff = (features.home_elo + 80.0 - features.away_elo) / 1000.0
+        if features.sample_matches < 4:
+            return _lambda(1.0, 1.0, elo_diff), _lambda(1.0, 1.0, -elo_diff)
+        league_avg = LEAGUE_AVG_GOALS
+        home_att = max(0.4, features.home_recent_goals_for / league_avg)
+        home_def = max(0.4, features.home_recent_goals_against / league_avg)
+        away_att = max(0.4, features.away_recent_goals_for / league_avg)
+        away_def = max(0.4, features.away_recent_goals_against / league_avg)
+        return _lambda(home_att, away_def, elo_diff), _lambda(away_att, home_def, -elo_diff)
+
     def predict(self, match: Match, features: MatchFeatures) -> Probabilities:
         _ = match
         if features.sample_matches < 4:
             home, draw, away = elo_1x2(features.home_elo, features.away_elo)
             return Probabilities(home, draw, away).normalized()
 
-        league_avg = LEAGUE_AVG_GOALS
-        home_att = max(0.4, features.home_recent_goals_for / league_avg)
-        home_def = max(0.4, features.home_recent_goals_against / league_avg)
-        away_att = max(0.4, features.away_recent_goals_for / league_avg)
-        away_def = max(0.4, features.away_recent_goals_against / league_avg)
-        elo_diff = (features.home_elo + 80.0 - features.away_elo) / 1000.0
-        lam_home = _lambda(home_att, away_def, elo_diff)
-        lam_away = _lambda(away_att, home_def, -elo_diff)
+        lam_home, lam_away = self.goal_lambdas(features)
         poisson = poisson_1x2(lam_home, lam_away)
         elo_home, elo_draw, elo_away = elo_1x2(features.home_elo, features.away_elo)
         elo = Probabilities(elo_home, elo_draw, elo_away).normalized()

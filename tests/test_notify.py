@@ -64,11 +64,24 @@ def test_notify_system_skips_empty_and_can_be_monkeypatched(monkeypatch) -> None
     assert called[0][0] == "osascript"
 
 
-def test_notify_user_mirrors_to_system(monkeypatch) -> None:
-    seen: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        "football_prognoz.ui.notify.notify_system",
-        lambda title, body: seen.append((title, body)) or True,
-    )
+def test_notify_user_mirrors_to_system_off_the_ui_thread(monkeypatch) -> None:
+    import threading
+    import time
+
+    seen: list[tuple[str, str, bool]] = []
+    ui_thread = threading.current_thread()
+
+    def slow_notify(title: str, body: str) -> bool:
+        time.sleep(0.2)  # osascript waiting for the macOS permission prompt
+        seen.append((title, body, threading.current_thread() is ui_thread))
+        return True
+
+    monkeypatch.setattr("football_prognoz.ui.notify.notify_system", slow_notify)
+    started = time.monotonic()
     notify_user(_Page(), "Кэш очищен.", kind="info", system=True)
-    assert seen == [("Football Prognoz", "Кэш очищен.")]
+    assert time.monotonic() - started < 0.1  # the handler returns at once
+    for _ in range(100):
+        if seen:
+            break
+        time.sleep(0.02)
+    assert seen == [("Football Prognoz", "Кэш очищен.", False)]

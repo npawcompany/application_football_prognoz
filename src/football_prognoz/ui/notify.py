@@ -5,18 +5,19 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import threading
 from typing import Any
 
 import flet as ft
 
-from football_prognoz.ui.theme import ACCENT, AWAY, CARD, DRAW, FG, SURFACE
+from football_prognoz.ui.theme import ACCENT, CARD, DRAW, ERROR_BG, FG, SURFACE
 
-__all__ = ["notify_system", "notify_user"]
+__all__ = ["notify_system", "notify_system_async", "notify_user"]
 
 _KIND_BG = {
     "info": SURFACE,
     "success": ACCENT,
-    "error": AWAY,
+    "error": ERROR_BG,
     "warning": DRAW,
 }
 _KIND_FG = {
@@ -101,7 +102,15 @@ def notify_user(
             )
             show(dialog)
     if system:
-        notify_system(title, text)
+        # osascript / notify-send can take seconds (first-run permission prompt on
+        # macOS): never on the UI event loop.
+        notify_system_async(title, text)
+
+
+def notify_system_async(title: str, body: str) -> threading.Thread:
+    worker = threading.Thread(target=notify_system, args=(title, body), daemon=True)
+    worker.start()
+    return worker
 
 
 def _dismiss(page: Any) -> None:

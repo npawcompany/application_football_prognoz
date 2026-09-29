@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -39,12 +40,32 @@ class TeamRoster:
     country_code: str | None = None
 
 
+COMPETITION_TYPES_RU = {
+    "LEAGUE": "Лига",
+    "CUP": "Кубок",
+    "LEAGUE_CUP": "Турнир",
+    "PLAYOFFS": "Плей-офф",
+}
+
+
 @dataclass(frozen=True)
 class Competition:
+    """football-data.org Competition. Metadata fields come from GET /v4/competitions."""
+
     id: int
     code: str
     name: str
     emblem: str | None = None
+    type: str | None = None  # LEAGUE | CUP | LEAGUE_CUP | PLAYOFFS
+    area_name: str | None = None
+    area_code: str | None = None
+    area_flag: str | None = None
+    season_start: date | None = None
+    season_end: date | None = None
+
+    @property
+    def is_cup(self) -> bool:
+        return (self.type or "LEAGUE") != "LEAGUE"
 
 
 @dataclass(frozen=True)
@@ -59,3 +80,4 @@ class StandingRow:
     points: int
     goals_for: int
     goals_against: int
+    group: str | None = None  # GROUP_A… for tournaments, None for a league table

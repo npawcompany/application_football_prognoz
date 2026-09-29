@@ -178,8 +178,14 @@ class _BoomClient(_FakeClient):
 
 
 class _TrackingExplainer:
+    enabled = True
+    model_name = "test-model"
+
     def __init__(self) -> None:
         self.calls = 0
+
+    def close(self) -> None:
+        pass
 
     def explain(self, *args, **kwargs):
         self.calls += 1
@@ -241,9 +247,7 @@ def test_clear_cache_empties_store_and_resets_elo(tmp_path: Path) -> None:
     assert codes == {item.code for item in FREE_COMPETITIONS}
 
 
-def test_competition_matches_includes_finished(
-    tmp_path: Path, matches_payload: dict
-) -> None:
+def test_competition_matches_includes_finished(tmp_path: Path, matches_payload: dict) -> None:
     store = SQLiteStore(tmp_path / "svc.db")
     matches = [match_from_api(raw, "PL") for raw in matches_payload["matches"]]
     store.upsert_matches(matches)

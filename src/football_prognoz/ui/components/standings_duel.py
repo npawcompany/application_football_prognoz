@@ -32,8 +32,10 @@ def _club_row(
     crest = match.home_crest if side == "home" else match.away_crest
     team_id = match.home_id if side == "home" else match.away_id
     place = "—" if row is None else str(row.position)
-    stats = "нет строки таблицы" if row is None else (
-        f"{row.played} игр  ·  {_record(row)}  ·  {row.points} оч.  ·  {_gd(row)}"
+    stats = (
+        "нет строки таблицы"
+        if row is None
+        else (f"{row.played} игр  ·  {_record(row)}  ·  {row.points} оч.  ·  {_gd(row)}")
     )
     bar = 0
     if row is not None:

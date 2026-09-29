@@ -9,7 +9,7 @@ from typing import Any
 
 import flet as ft
 
-from football_prognoz.ui.theme import AWAY, BG, CARD, DRAW, FG, MUTED, glass_border
+from football_prognoz.ui.theme import BG, CARD, DRAW, ERROR_BG, FG, MUTED, glass_border
 
 
 @dataclass
@@ -107,11 +107,50 @@ def _cancel_handle(handle: Any) -> None:
         pass
 
 
-def _cancel_previous_task(page: ft.Page) -> None:
-    previous = _map_get(_BG_TASKS, _ID_BG_TASKS, page)
+def _task_slots(page: ft.Page) -> dict[str, Any]:
+    slots = _map_get(_BG_TASKS, _ID_BG_TASKS, page)
+    if slots is None:
+        slots = {}
+        _map_set(_BG_TASKS, _ID_BG_TASKS, page, slots)
+    return slots
+
+
+def _cancel_previous_task(page: ft.Page, key: str = "default") -> None:
+    previous = _task_slots(page).pop(key, None)
     if previous is None:
         return
     _cancel_handle(previous)
+
+
+def cancel_background(page: ft.Page, key: str) -> None:
+    """Cancel the pending UI callback of a keyed background task (the thread may finish)."""
+    _cancel_previous_task(page, key)
+
+
+def is_mounted(control: Any) -> bool:
+    """True when the control is on a page (Flet raises on `.page` otherwise)."""
+    try:
+        return getattr(control, "page", None) is not None
+    except (RuntimeError, AssertionError):
+        return False
+
+
+def safe_update(*controls: Any) -> bool:
+    """Update controls that are mounted; skip (return False) those that are not.
+
+    Worker callbacks can arrive after the user switched screens, when the control is
+    no longer on the page; Flet raises then, and the old code crashed the callback.
+    """
+    ok = True
+    for control in controls:
+        try:
+            if not is_mounted(control):
+                ok = False
+                continue
+            control.update()
+        except (RuntimeError, AssertionError, AttributeError):
+            ok = False
+    return ok
 
 
 def _finish_ok(page: ft.Page, on_ok: Callable[[Any], None], result: Any) -> None:
@@ -126,6 +165,40 @@ def _finish_err(page: ft.Page, on_err: Callable[[str], None], message: str) -> N
     page.update()
 
 
+class Job:
+    """One cancellable background job generation (AI analysis, calendar load).
+
+    `start()` cancels the previous generation and returns a fresh token; results of
+    an old token are stale and must be dropped (`is_current`).
+    """
+
+    def __init__(self) -> None:
+        self.generation = 0
+        self.cancel: threading.Event | None = None
+
+    def start(self) -> tuple[int, threading.Event]:
+        self.stop()
+        self.generation += 1
+        self.cancel = threading.Event()
+        return self.generation, self.cancel
+
+    def stop(self) -> None:
+        if self.cancel is not None:
+            self.cancel.set()
+        self.cancel = None
+
+    def is_current(self, generation: int) -> bool:
+        return generation == self.generation and self.cancel is not None
+
+    @property
+    def running(self) -> bool:
+        return self.cancel is not None and not self.cancel.is_set()
+
+    def finish(self, generation: int) -> None:
+        if generation == self.generation:
+            self.cancel = None
+
+
 def run_background(
     page: ft.Page,
     work: Callable[[], Any],
@@ -134,13 +207,20 @@ def run_background(
     *,
     message: str | None = None,
     cancel_previous: bool = True,
+    key: str = "default",
 ) -> None:
-    """Run blocking I/O off the UI thread, then apply results on the UI thread."""
+    """Run blocking I/O off the UI thread, then apply results on the UI thread.
+
+    `key` names the kind of task: a new task cancels only the pending callback of the
+    previous task with the same key (calendar refresh does not kill a forecast).
+    `message` shows the full-window preloader; use it only for short blocking actions.
+    """
     if message:
         show_preloader(page, message)
 
     if cancel_previous:
-        _cancel_previous_task(page)
+        _cancel_previous_task(page, key)
+    slots = _task_slots(page)
 
     async def task() -> None:
         try:
@@ -154,7 +234,7 @@ def run_background(
 
     runner = getattr(page, "run_task", None)
     if callable(runner):
-        _map_set(_BG_TASKS, _ID_BG_TASKS, page, runner(task))
+        slots[key] = runner(task)
         return
 
     def target() -> None:
@@ -167,12 +247,67 @@ def run_background(
 
     thread_runner = getattr(page, "run_thread", None)
     if callable(thread_runner):
-        _map_set(_BG_TASKS, _ID_BG_TASKS, page, thread_runner(target))
+        slots[key] = thread_runner(target)
         return
 
     worker = threading.Thread(target=target, daemon=True)
-    _map_set(_BG_TASKS, _ID_BG_TASKS, page, worker)
+    slots[key] = worker
     worker.start()
+
+
+def run_detached(
+    page: ft.Page,
+    work: Callable[[], Any],
+    on_ok: Callable[[Any], None],
+    on_err: Callable[[str], None],
+) -> None:
+    """Like run_background, but never cancelled by later background tasks.
+
+    For long jobs (training-data collection) that must survive the user opening
+    matches meanwhile. Cancellation is cooperative, via the job's own Event.
+    """
+
+    async def task() -> None:
+        try:
+            result = await asyncio.to_thread(work)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            on_err(str(exc))
+            page.update()
+            return
+        on_ok(result)
+        page.update()
+
+    runner = getattr(page, "run_task", None)
+    if callable(runner):
+        runner(task)
+        return
+
+    def target() -> None:
+        try:
+            result = work()
+        except Exception as exc:  # noqa: BLE001
+            on_err(str(exc))
+            page.update()
+            return
+        on_ok(result)
+        page.update()
+
+    threading.Thread(target=target, daemon=True).start()
+
+
+def post_to_ui(page: ft.Page, callback: Callable[[], None]) -> None:
+    """Apply a UI change from a worker thread on the page's event loop."""
+    runner = getattr(page, "run_task", None)
+    if callable(runner):
+
+        async def tick() -> None:
+            callback()
+
+        runner(tick)
+        return
+    callback()
 
 
 def debounce(
@@ -219,10 +354,9 @@ def error_banner(text: str) -> ft.Control:
             spacing=8,
             wrap=True,
         ),
-        bgcolor=AWAY,
+        bgcolor=ERROR_BG,
         padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         border_radius=10,
-        semantics_label=text,
     )
 
 

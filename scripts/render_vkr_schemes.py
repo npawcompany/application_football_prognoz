@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render Draw.io sources to readable PNGs sized for an A4 text column."""
+
 import html
-import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -59,12 +59,14 @@ def parse_cells(path):
                 "dashed": "dashed=1" in style,
             }
         elif cell.get("edge") == "1":
-            edges.append({
-                "src": cell.get("source"),
-                "dst": cell.get("target"),
-                "text": value,
-                "dashed": "dashed=1" in style,
-            })
+            edges.append(
+                {
+                    "src": cell.get("source"),
+                    "dst": cell.get("target"),
+                    "text": value,
+                    "dashed": "dashed=1" in style,
+                }
+            )
     return page_w, page_h, cells, edges
 
 
@@ -110,21 +112,31 @@ def render(path, dest):
             for i in range(0, steps, 2):
                 t0, t1 = i / steps, min(1, (i + 1) / steps)
                 draw.line(
-                    [(S(x1 + (x2 - x1) * t0), S(y1 + (y2 - y1) * t0)),
-                     (S(x1 + (x2 - x1) * t1), S(y1 + (y2 - y1) * t1))],
-                    fill=color, width=2,
+                    [
+                        (S(x1 + (x2 - x1) * t0), S(y1 + (y2 - y1) * t0)),
+                        (S(x1 + (x2 - x1) * t1), S(y1 + (y2 - y1) * t1)),
+                    ],
+                    fill=color,
+                    width=2,
                 )
         else:
             draw.line([(S(x1), S(y1)), (S(x2), S(y2))], fill=color, width=2)
         # Arrow head.
         import math
+
         ang = math.atan2(y2 - y1, x2 - x1)
         ah = 10
         for da in (2.6, -2.6):
             draw.line(
-                [(S(x2), S(y2)),
-                 (S(x2) - ah * math.cos(ang + da * 0.35), S(y2) - ah * math.sin(ang + da * 0.35))],
-                fill=color, width=2,
+                [
+                    (S(x2), S(y2)),
+                    (
+                        S(x2) - ah * math.cos(ang + da * 0.35),
+                        S(y2) - ah * math.sin(ang + da * 0.35),
+                    ),
+                ],
+                fill=color,
+                width=2,
             )
         if edge["text"]:
             mx, my = (x1 + x2) / 2, (y1 + y2) / 2
@@ -304,7 +316,8 @@ def draw_sqlite():
     ]
     for x, y, text in items:
         draw_box(draw, font, x, y, 290, 110, text)
-    draw.text((20, 410), "Файл кэша. SCHEDULED: 6 ч. FINISHED и таблицы: 24 ч.", fill="black", font=small)
+    note = "Файл кэша. SCHEDULED: 6 ч. FINISHED и таблицы: 24 ч."
+    draw.text((20, 410), note, fill="black", font=small)
     save_diagram("sqlite-cache.png", img)
 
 

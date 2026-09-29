@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -14,6 +14,9 @@ from football_prognoz.domain.match import Match, MatchLineup, MatchStatus, Score
 from football_prognoz.domain.team import Competition, Person, StandingRow, Team, TeamRoster
 
 API_BASE = "https://api.football-data.org/v4"
+# Interactive detail calls (team card, match lineup, day window) give up after this many
+# seconds of local rate-limit wait and let the service answer from the SQLite cache.
+DETAIL_MAX_WAIT = 15.0
 
 
 class FootballDataError(Exception):
@@ -23,22 +26,39 @@ class FootballDataError(Exception):
 
 
 class RateLimiter:
-    """At most `max_per_minute` calls in any rolling 60-second window."""
+    """At most `max_per_minute` calls in any rolling 60-second window.
+
+    A caller reserves the next free slot under the lock and sleeps *outside* it, so one
+    thread waiting for the window does not freeze every other caller. `max_wait` lets
+    interactive callers give up (and use the cache) instead of blocking for a minute.
+    """
 
     def __init__(self, max_per_minute: int = 10) -> None:
         self.max_per_minute = max_per_minute
         self._times: list[float] = []
         self._lock = threading.Lock()
 
-    def wait(self) -> None:
+    def reserve(self, max_wait: float | None = None) -> float | None:
+        """Book a slot; return seconds to sleep before using it, or None if too far."""
         with self._lock:
             now = time.monotonic()
-            self._times = [t for t in self._times if now - t < 60.0]
+            self._times = [t for t in self._times if t > now - 60.0]
+            slot = now
             if len(self._times) >= self.max_per_minute:
-                sleep_for = 60.0 - (now - self._times[0]) + 0.05
-                if sleep_for > 0:
-                    time.sleep(sleep_for)
-            self._times.append(time.monotonic())
+                slot = max(now, self._times[-self.max_per_minute] + 60.0 + 0.05)
+            delay = slot - now
+            if max_wait is not None and delay > max_wait:
+                return None
+            self._times.append(slot)
+            return delay
+
+    def wait(self, max_wait: float | None = None) -> bool:
+        delay = self.reserve(max_wait)
+        if delay is None:
+            return False
+        if delay > 0:
+            time.sleep(delay)
+        return True
 
 
 def parse_utc(value: str | None) -> datetime:
@@ -153,9 +173,7 @@ def roster_from_api(payload: dict[str, Any]) -> TeamRoster:
     team_id = int(payload.get("id") or 0)
     coach_raw = payload.get("coach")
     coach = (
-        _person_from_api(coach_raw, default_role="COACH")
-        if isinstance(coach_raw, dict)
-        else None
+        _person_from_api(coach_raw, default_role="COACH") if isinstance(coach_raw, dict) else None
     )
     players: list[Person] = []
     for raw in payload.get("squad") or []:
@@ -186,6 +204,38 @@ def roster_from_api(payload: dict[str, Any]) -> TeamRoster:
     )
 
 
+def _date_or_none(value: object) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def competition_from_api(raw: dict[str, Any]) -> Competition:
+    """Map a v4 Competition item: id, code, name, emblem, type, area, currentSeason."""
+    code = str(raw.get("code") or "")
+    area = raw.get("area") or {}
+    season = raw.get("currentSeason") or {}
+    if not isinstance(area, dict):
+        area = {}
+    if not isinstance(season, dict):
+        season = {}
+    return Competition(
+        id=int(raw.get("id") or 0),
+        code=code,
+        name=str(raw.get("name") or code),
+        emblem=raw.get("emblem"),
+        type=str(raw.get("type") or "").upper() or None,
+        area_name=str(area.get("name") or "").strip() or None,
+        area_code=str(area.get("code") or "").strip() or None,
+        area_flag=area.get("flag") or None,
+        season_start=_date_or_none(season.get("startDate")),
+        season_end=_date_or_none(season.get("endDate")),
+    )
+
+
 class FootballDataOrgClient:
     def __init__(
         self,
@@ -204,15 +254,36 @@ class FootballDataOrgClient:
         if self._owns_client:
             self._client.close()
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _get(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        *,
+        max_wait: float | None = None,
+    ) -> dict[str, Any]:
         if not self._api_key.strip():
             raise FootballDataError(
                 "Не задан ключ football-data.org. Откройте Настройки.",
                 status_code=401,
             )
-        self._limiter.wait()
+        if not self._limiter.wait(max_wait):
+            raise FootballDataError(
+                "Лимит football-data.org (10 запросов в минуту) исчерпан, показан кэш.",
+                status_code=429,
+            )
         headers = {"X-Auth-Token": self._api_key}
-        response = self._client.get(path, params=params, headers=headers)
+        try:
+            response = self._client.get(path, params=params, headers=headers)
+        except httpx.HTTPError as exc:
+            # Offline / DNS / timeout: callers fall back to the SQLite cache.
+            raise FootballDataError(
+                f"Нет связи с football-data.org ({type(exc).__name__})."
+            ) from exc
+        if response.status_code in (400, 401):
+            raise FootballDataError(
+                f"Ключ football-data.org не принят ({response.status_code}).",
+                status_code=response.status_code,
+            )
         if response.status_code == 403:
             raise FootballDataError(
                 "Ключ отклонён или лига недоступна на текущем тарифе (403).",
@@ -228,7 +299,10 @@ class FootballDataOrgClient:
                 f"Ошибка football-data.org: HTTP {response.status_code}.",
                 status_code=response.status_code,
             )
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise FootballDataError("Неожиданный ответ API (не JSON).") from exc
         if not isinstance(data, dict):
             raise FootballDataError("Неожиданный ответ API.")
         return data
@@ -243,14 +317,7 @@ class FootballDataOrgClient:
             code = str(raw.get("code") or "")
             if code not in FREE_CODES:
                 continue
-            items.append(
-                Competition(
-                    id=int(raw.get("id") or 0),
-                    code=code,
-                    name=str(raw.get("name") or code),
-                    emblem=raw.get("emblem"),
-                )
-            )
+            items.append(competition_from_api(raw))
         items.sort(key=lambda c: c.name)
         return items
 
@@ -273,9 +340,34 @@ class FootballDataOrgClient:
         if date_to:
             params["dateTo"] = date_to
         payload = self._get(f"/competitions/{competition_code}/matches", params=params)
-        matches = [
-            match_from_api(raw, competition_code) for raw in payload.get("matches") or []
-        ]
+        matches = [match_from_api(raw, competition_code) for raw in payload.get("matches") or []]
+        matches.sort(key=lambda m: m.utc_date)
+        return matches
+
+    def list_matches_between(
+        self,
+        date_from: str,
+        date_to: str,
+        *,
+        max_wait: float | None = DETAIL_MAX_WAIT,
+    ) -> list[Match]:
+        """GET /v4/matches?dateFrom&dateTo — every accessible competition in one call.
+
+        The competition code comes from each item's `competition.code`. Items of
+        competitions outside the free tier are skipped.
+        """
+        payload = self._get(
+            "/matches",
+            params={"dateFrom": date_from, "dateTo": date_to},
+            max_wait=max_wait,
+        )
+        matches: list[Match] = []
+        for raw in payload.get("matches") or []:
+            competition = raw.get("competition") or {}
+            code = str(competition.get("code") or "")
+            if code not in FREE_CODES:
+                continue
+            matches.append(match_from_api(raw, code))
         matches.sort(key=lambda m: m.utc_date)
         return matches
 
@@ -300,12 +392,14 @@ class FootballDataOrgClient:
         teams.sort(key=lambda t: t.name)
         return teams
 
-    def get_team(self, team_id: int) -> TeamRoster:
-        payload = self._get(f"/teams/{team_id}")
+    def get_team(self, team_id: int, *, max_wait: float | None = DETAIL_MAX_WAIT) -> TeamRoster:
+        payload = self._get(f"/teams/{team_id}", max_wait=max_wait)
         return roster_from_api(payload)
 
-    def get_match(self, match_id: int) -> tuple[Match, MatchLineup]:
-        payload = self._get(f"/matches/{match_id}")
+    def get_match(
+        self, match_id: int, *, max_wait: float | None = DETAIL_MAX_WAIT
+    ) -> tuple[Match, MatchLineup]:
+        payload = self._get(f"/matches/{match_id}", max_wait=max_wait)
         competition = payload.get("competition") or {}
         code = str(competition.get("code") or "")
         return match_from_api(payload, code), lineup_from_api(payload)
@@ -313,14 +407,22 @@ class FootballDataOrgClient:
     def list_standings(self, competition_code: str) -> list[StandingRow]:
         payload = self._get(f"/competitions/{competition_code}/standings")
         rows: list[StandingRow] = []
+        seen: set[int] = set()
+        # LEAGUE: one TOTAL table (+ HOME/AWAY). Tournaments (WC, EC, CL league phase):
+        # one TOTAL table per group — keep every group, not only the first one.
         for table in payload.get("standings") or []:
             if table.get("type") and table.get("type") != "TOTAL":
                 continue
+            group = str(table.get("group") or "").strip() or None
             for raw in table.get("table") or []:
                 team = raw.get("team") or {}
+                team_id = int(team.get("id") or 0)
+                if team_id in seen:
+                    continue
+                seen.add(team_id)
                 rows.append(
                     StandingRow(
-                        team_id=int(team.get("id") or 0),
+                        team_id=team_id,
                         team_name=str(team.get("name") or "Unknown"),
                         position=int(raw.get("position") or 0),
                         played=int(raw.get("playedGames") or 0),
@@ -330,7 +432,7 @@ class FootballDataOrgClient:
                         points=int(raw.get("points") or 0),
                         goals_for=int(raw.get("goalsFor") or 0),
                         goals_against=int(raw.get("goalsAgainst") or 0),
+                        group=group,
                     )
                 )
-            break
         return rows

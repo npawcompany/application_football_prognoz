@@ -14,9 +14,10 @@ One wide column in the shell (no master–detail split). Form + helper aside may
 
 ## Fields
 1. FOOTBALL_DATA_API_KEY · обязательный
-2. OPENAI_API_KEY · необязательный
-3. OPENAI_MODEL
-4. OPENAI_BASE_URL
+2. OLLAMA_API_KEY · необязательный
+3. OLLAMA_HOST (по умолчанию https://ollama.com)
+4. OLLAMA_MODEL / OLLAMA_FALLBACK_MODEL
+4a. API_FOOTBALL_KEY · необязательный
 
 ## Extra controls
 5. **Любимые лиги** — hint `PL,PD,SA`
@@ -26,6 +27,6 @@ One wide column in the shell (no master–detail split). Form + helper aside may
 
 Buttons (wrap): **Сохранить**, **Проверить football-data.org**, **Очистить кэш**.
 
-Aside: «Локальное хранение ключей»; DB path `data/cache/prognoz.db`; «football-data.org · лимит 10 запросов/мин»; «OpenAI опционален для пояснения, не для выбора исхода». «Это не совет ставить деньги.»
+Aside: «Локальное хранение ключей»; DB path `data/cache/prognoz.db`; «football-data.org · лимит 10 запросов/мин»; «Ollama опционален для пояснения, не для выбора исхода». «Это не совет ставить деньги.»
 
 Never show live secret values in mockups — use masked `••••••••` placeholders (bullets).
