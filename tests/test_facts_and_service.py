@@ -216,3 +216,33 @@ def test_attach_news_failure_keeps_forecast(tmp_path: Path, matches_payload: dic
     assert match is not None
     forecast = service.forecast(match, explain=False)
     assert service.attach_news(forecast) == forecast
+
+
+def test_match_service_collect_training_data_uses_league_refresh(
+    tmp_path: Path, matches_payload: dict
+) -> None:
+    store = _store(tmp_path, matches_payload)
+
+    class _Client:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def list_matches(self, code, season=None):
+            self.calls += 1
+            return store.list_matches(code)
+
+        def list_standings(self, code):
+            return []
+
+    client = _Client()
+    service = MatchService(
+        client=client,  # type: ignore[arg-type]
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(None, "m"),
+    )
+    result = service.collect_training_data(["PL"])
+    assert client.calls == 1
+    assert result.cancelled is False
+    assert result.errors == ()

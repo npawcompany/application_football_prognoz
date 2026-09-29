@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -14,12 +15,14 @@ from football_prognoz.data.store import (
     TTL_SCHEDULED_HOURS,
     SQLiteStore,
 )
+from football_prognoz.domain.history import CollectionResult
 from football_prognoz.domain.match import Match, MatchLineup
 from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.domain.team import Competition, StandingRow, Team, TeamRoster
 from football_prognoz.models.predictor import Predictor
 from football_prognoz.services.facts import SRC_FOOTBALL_DATA, SRC_MODEL, FactsService
 from football_prognoz.services.features import FeatureService
+from football_prognoz.services.history import ForecastHistoryService, Progress
 from football_prognoz.services.news import NewsService
 from football_prognoz.services.player_status import PlayerStatusService
 
@@ -52,6 +55,7 @@ class MatchService:
         self._player_status = player_status
         self._news = news
         self._facts = FactsService(store)
+        self._history = self._make_history()
 
     @property
     def llm_enabled(self) -> bool:
@@ -80,6 +84,25 @@ class MatchService:
             except Exception as exc:  # noqa: BLE001 — closing must not break a settings save
                 log.warning("Closing a client failed: %s", exc)
 
+    def _make_history(self) -> ForecastHistoryService:
+        return ForecastHistoryService(
+            self._store,
+            features=self._features,
+            predictor=self._predictor,
+            facts=self._facts,
+            refresh=lambda code, force: self.prefetch_competition(code, force=force),
+        )
+
+    def collect_training_data(
+        self,
+        codes: list[str],
+        *,
+        progress: Progress | None = None,
+        cancel: threading.Event | None = None,
+    ) -> CollectionResult:
+        """Store forecasts for upcoming / recent matches of `codes` and fill results."""
+        return self._history.collect(codes, progress=progress, cancel=cancel)
+
     def ping(self) -> list[Competition]:
         return self._client.ping()
 
@@ -88,6 +111,7 @@ class MatchService:
         self._store.clear_all()
         self._features = FeatureService(self._store)
         self._facts = FactsService(self._store)
+        self._history = self._make_history()  # forecast_history itself is kept
 
     def cached_competitions(self) -> list[Competition]:
         """Return stored competitions or the free-tier list. Never hits HTTP."""

@@ -7,6 +7,8 @@ from football_prognoz.domain.prediction import MatchFeatures, Probabilities, Sco
 from football_prognoz.models.elo import elo_1x2
 
 MAX_GOALS = 8
+# Bump when the 1X2 formula or its inputs change: forecast_history is keyed by it.
+MODEL_VERSION = "elo-poisson-v1"
 LEAGUE_AVG_GOALS = 1.35
 
 
@@ -67,6 +69,22 @@ def poisson_mode(lam_home: float, lam_away: float) -> Scoreline:
         expected_home=lam_home,
         expected_away=lam_away,
     )
+
+
+def top_scorelines(lam_home: float, lam_away: float, n: int = 3) -> list[Scoreline]:
+    """The `n` most likely exact scores on the same grid as `poisson_mode`."""
+    cells = []
+    total = 0.0
+    for i in range(MAX_GOALS + 1):
+        for j in range(MAX_GOALS + 1):
+            p = poisson_pmf(i, lam_home) * poisson_pmf(j, lam_away)
+            total += p
+            cells.append((p, i, j))
+    cells.sort(key=lambda cell: (-cell[0], (cell[1] - lam_home) ** 2 + (cell[2] - lam_away) ** 2))
+    return [
+        Scoreline(i, j, p / total if total > 0 else 0.0, lam_home, lam_away)
+        for p, i, j in cells[:n]
+    ]
 
 
 def _blend(a: Probabilities, b: Probabilities, weight_a: float) -> Probabilities:

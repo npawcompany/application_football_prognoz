@@ -387,3 +387,43 @@ def test_match_detail_news_card() -> None:
     assert "24.09 · травма · Saka doubt for City clash (BBC Sport)" in blob
     assert "свежих заголовков нет" in blob
     assert "не влияют на вероятности 1X2" in blob
+
+
+def test_training_panel_idle_and_running() -> None:
+    from football_prognoz.ui.components.training_panel import TrainingState, training_panel
+
+    idle = _blob(
+        training_panel(
+            TrainingState(result="Сбор завершён: новых 3."),
+            on_collect=lambda: None,
+            on_cancel=lambda: None,
+        )
+    )
+    assert "Собрать данные для обучения" in idle
+    assert "Отменить" not in idle
+    assert "Сбор завершён: новых 3." in idle
+    running = _blob(
+        training_panel(
+            TrainingState(running=True, done=3, total=10, message="Alpha — Beta", codes=("PL",)),
+            on_collect=lambda: None,
+            on_cancel=lambda: None,
+        )
+    )
+    assert "Отменить" in running
+    assert "3 / 10 · Alpha — Beta" in running
+    assert "Лиги: PL" in running
+    assert TrainingState(running=True, done=3, total=10).fraction == 0.3
+
+
+def test_settings_view_embeds_training_panel() -> None:
+    import flet as ft
+
+    form = SettingsForm.from_settings(Settings(football_data_api_key="k"))
+    view = settings_view(
+        form,
+        on_save=lambda _p: None,
+        on_test=lambda: None,
+        on_clear_cache=lambda: None,
+        training=ft.Text("TRAINING-PANEL"),
+    )
+    assert "TRAINING-PANEL" in _blob(view)

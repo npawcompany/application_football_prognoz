@@ -5,6 +5,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from football_prognoz.domain.history import ForecastRecord
 from football_prognoz.domain.match import Match, MatchLineup, MatchStatus, Score
 from football_prognoz.domain.team import Competition, Person, StandingRow, Team, TeamRoster
 
@@ -21,6 +22,80 @@ def _parse_dt(value: str | None) -> datetime:
     if not value:
         return datetime.fromtimestamp(0, tz=UTC)
     return datetime.fromisoformat(value)
+
+
+def _iso(value: datetime) -> str:
+    """UTC ISO-8601 without microseconds, so string order equals time order in SQL."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).replace(microsecond=0).isoformat()
+
+
+def _record_values(record: ForecastRecord) -> dict[str, object]:
+    return {
+        "match_id": record.match_id,
+        "model_version": record.model_version,
+        "competition_code": record.competition_code,
+        "kickoff_utc": _iso(record.kickoff_utc),
+        "home_id": record.home_id,
+        "home_name": record.home_name,
+        "away_id": record.away_id,
+        "away_name": record.away_name,
+        "p_home": record.p_home,
+        "p_draw": record.p_draw,
+        "p_away": record.p_away,
+        "predicted_outcome": record.predicted_outcome,
+        "predicted_score": record.predicted_score,
+        "score_probability": record.score_probability,
+        "expected_home": record.expected_home,
+        "expected_away": record.expected_away,
+        "likely_outcomes": json.dumps(list(record.likely_outcomes), ensure_ascii=False),
+        "facts": json.dumps(record.facts, ensure_ascii=False, sort_keys=True, default=str),
+        "sources": json.dumps(list(record.sources), ensure_ascii=False),
+        "sample_matches": record.sample_matches,
+        "forecast_at": _iso(record.forecast_at),
+        "made_after_kickoff": int(record.made_after_kickoff),
+        "status": record.status,
+        "actual_home": record.actual_home,
+        "actual_away": record.actual_away,
+        "actual_score": record.actual_score,
+        "actual_outcome": record.actual_outcome,
+        "is_correct": None if record.is_correct is None else int(record.is_correct),
+        "result_updated_at": _iso(record.result_updated_at) if record.result_updated_at else None,
+    }
+
+
+def _record_from_row(row: sqlite3.Row) -> ForecastRecord:
+    return ForecastRecord(
+        match_id=row["match_id"],
+        model_version=row["model_version"],
+        competition_code=row["competition_code"],
+        kickoff_utc=_parse_dt(row["kickoff_utc"]),
+        home_id=row["home_id"],
+        home_name=row["home_name"],
+        away_id=row["away_id"],
+        away_name=row["away_name"],
+        p_home=row["p_home"],
+        p_draw=row["p_draw"],
+        p_away=row["p_away"],
+        predicted_outcome=row["predicted_outcome"],
+        predicted_score=row["predicted_score"],
+        score_probability=row["score_probability"],
+        expected_home=row["expected_home"],
+        expected_away=row["expected_away"],
+        likely_outcomes=tuple(json.loads(row["likely_outcomes"])),
+        facts=json.loads(row["facts"]),
+        sources=tuple(json.loads(row["sources"])),
+        sample_matches=row["sample_matches"],
+        forecast_at=_parse_dt(row["forecast_at"]),
+        made_after_kickoff=bool(row["made_after_kickoff"]),
+        status=row["status"],
+        actual_home=row["actual_home"],
+        actual_away=row["actual_away"],
+        actual_outcome=row["actual_outcome"],
+        is_correct=None if row["is_correct"] is None else bool(row["is_correct"]),
+        result_updated_at=_parse_dt(row["result_updated_at"]) if row["result_updated_at"] else None,
+    )
 
 
 class SQLiteStore:
@@ -133,6 +208,43 @@ class SQLiteStore:
                     payload TEXT NOT NULL,
                     fetched_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS forecast_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    match_id INTEGER NOT NULL,
+                    model_version TEXT NOT NULL,
+                    competition_code TEXT NOT NULL,
+                    kickoff_utc TEXT NOT NULL,
+                    home_id INTEGER NOT NULL,
+                    home_name TEXT NOT NULL,
+                    away_id INTEGER NOT NULL,
+                    away_name TEXT NOT NULL,
+                    p_home REAL NOT NULL,
+                    p_draw REAL NOT NULL,
+                    p_away REAL NOT NULL,
+                    predicted_outcome TEXT NOT NULL,
+                    predicted_score TEXT NOT NULL,
+                    score_probability REAL NOT NULL,
+                    expected_home REAL NOT NULL,
+                    expected_away REAL NOT NULL,
+                    likely_outcomes TEXT NOT NULL,
+                    facts TEXT NOT NULL,
+                    sources TEXT NOT NULL,
+                    sample_matches INTEGER NOT NULL,
+                    forecast_at TEXT NOT NULL,
+                    made_after_kickoff INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    actual_home INTEGER,
+                    actual_away INTEGER,
+                    actual_score TEXT,
+                    actual_outcome TEXT,
+                    is_correct INTEGER,
+                    result_updated_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (match_id, model_version)
+                );
+                CREATE INDEX IF NOT EXISTS idx_forecast_history_status
+                    ON forecast_history (model_version, status);
                 """
             )
             self._migrate(conn)
@@ -354,6 +466,147 @@ class SQLiteStore:
                     _utcnow().isoformat(),
                 ),
             )
+
+    # --- forecast history (training / evaluation dataset) ------------------------
+    # Never touched by clear_all(): this is collected data, not a cache.
+
+    def get_forecast_record(self, match_id: int, model_version: str) -> ForecastRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM forecast_history WHERE match_id = ? AND model_version = ?",
+                (match_id, model_version),
+            ).fetchone()
+        return _record_from_row(row) if row else None
+
+    def insert_forecast_record(self, record: ForecastRecord) -> bool:
+        """INSERT OR IGNORE on (match_id, model_version). Returns True if a row was added."""
+        now = _iso(_utcnow())
+        values = _record_values(record)
+        columns = ", ".join(values)
+        marks = ", ".join("?" for _ in values)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"INSERT OR IGNORE INTO forecast_history ({columns}, created_at, updated_at) "
+                f"VALUES ({marks}, ?, ?)",
+                (*values.values(), now, now),
+            )
+            return cursor.rowcount > 0
+
+    def update_forecast_prediction(self, record: ForecastRecord) -> bool:
+        """Refresh a PRE-MATCH forecast. SQL guard: only while the new forecast time is
+        still before kick-off and the stored row is itself a pre-match forecast."""
+        values = _record_values(record)
+        prediction_cols = (
+            "competition_code",
+            "kickoff_utc",
+            "home_id",
+            "home_name",
+            "away_id",
+            "away_name",
+            "p_home",
+            "p_draw",
+            "p_away",
+            "predicted_outcome",
+            "predicted_score",
+            "score_probability",
+            "expected_home",
+            "expected_away",
+            "likely_outcomes",
+            "facts",
+            "sources",
+            "sample_matches",
+            "forecast_at",
+        )
+        assignments = ", ".join(f"{col} = ?" for col in prediction_cols)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"UPDATE forecast_history SET {assignments}, updated_at = ? "
+                "WHERE match_id = ? AND model_version = ? AND made_after_kickoff = 0 "
+                "AND ? < ? AND status IN ('scheduled', 'postponed')",
+                (
+                    *(values[col] for col in prediction_cols),
+                    _iso(_utcnow()),
+                    record.match_id,
+                    record.model_version,
+                    values["forecast_at"],
+                    values["kickoff_utc"],
+                ),
+            )
+            return cursor.rowcount > 0
+
+    def update_forecast_result(
+        self,
+        match_id: int,
+        model_version: str,
+        *,
+        status: str,
+        kickoff_utc: datetime,
+        actual_home: int | None,
+        actual_away: int | None,
+        actual_outcome: str | None,
+        is_correct: bool | None,
+    ) -> bool:
+        """Set status / real score. Returns True if anything changed."""
+        actual_score = (
+            f"{actual_home}:{actual_away}"
+            if actual_home is not None and actual_away is not None
+            else None
+        )
+        kickoff = _iso(kickoff_utc)
+        correct = None if is_correct is None else int(is_correct)
+        now = _iso(_utcnow())
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE forecast_history
+                SET status = ?, kickoff_utc = ?, actual_home = ?, actual_away = ?,
+                    actual_score = ?, actual_outcome = ?, is_correct = ?,
+                    result_updated_at = ?, updated_at = ?
+                WHERE match_id = ? AND model_version = ?
+                  AND NOT (status IS ? AND kickoff_utc IS ? AND actual_home IS ?
+                           AND actual_away IS ? AND is_correct IS ?)
+                """,
+                (
+                    status,
+                    kickoff,
+                    actual_home,
+                    actual_away,
+                    actual_score,
+                    actual_outcome,
+                    correct,
+                    now,
+                    now,
+                    match_id,
+                    model_version,
+                    status,
+                    kickoff,
+                    actual_home,
+                    actual_away,
+                    correct,
+                ),
+            )
+            return cursor.rowcount > 0
+
+    def list_forecast_records(
+        self,
+        model_version: str | None = None,
+        *,
+        unresolved_before: datetime | None = None,
+    ) -> list[ForecastRecord]:
+        """All records (optionally one model version); `unresolved_before` keeps rows
+        whose kick-off has passed but whose final status is not known yet."""
+        sql = "SELECT * FROM forecast_history WHERE 1 = 1"
+        params: list[object] = []
+        if model_version is not None:
+            sql += " AND model_version = ?"
+            params.append(model_version)
+        if unresolved_before is not None:
+            sql += " AND status NOT IN ('finished', 'cancelled') AND kickoff_utc < ?"
+            params.append(_iso(unresolved_before))
+        sql += " ORDER BY kickoff_utc, match_id"
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [_record_from_row(row) for row in rows]
 
     def mark_fetched(self, cache_key: str, etag: str | None = None) -> None:
         now = _utcnow().isoformat()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -32,9 +34,16 @@ from football_prognoz.ui.components.ai_analysis import (
 )
 from football_prognoz.ui.components.settings_panel import SettingsForm
 from football_prognoz.ui.components.splash import splash_view
+from football_prognoz.ui.components.training_panel import TrainingState, training_panel
 from football_prognoz.ui.motion import PAGE_CURSOR, with_cursor
 from football_prognoz.ui.notify import notify_user
-from football_prognoz.ui.runtime import debounce, info_banner, run_background
+from football_prognoz.ui.runtime import (
+    debounce,
+    info_banner,
+    post_to_ui,
+    run_background,
+    run_detached,
+)
 from football_prognoz.ui.theme import (
     BG,
     BODY_PADDING,
@@ -91,6 +100,9 @@ class FootballApp:
         self.fixture_query = FixtureQuery()
         self.ai_state: str | None = None
         self.ai_error: str | None = None
+        self.training = TrainingState()
+        self._training_cancel: threading.Event | None = None
+        self._training_painted_at = 0.0
         self._splash_message = "Загружаем данные…"
         self._splash_fraction: float | None = None
         self._pane = ft.Container(expand=True, padding=BODY_PADDING, bgcolor=BG)
@@ -505,6 +517,12 @@ class FootballApp:
             on_test=self._test_connection,
             on_clear_cache=self._clear_cache,
             window_width=width,
+            training=training_panel(
+                self.training,
+                on_collect=self._start_training,
+                on_cancel=self._cancel_training,
+                window_width=width,
+            ),
         )
 
     def _section_body(self, width: int, split: bool) -> ft.Control:
@@ -846,6 +864,87 @@ class FootballApp:
             message="Сохраняем настройки…",
             cancel_previous=True,
         )
+
+    # --- training data collection (background, cancellable) -----------------
+
+    def _training_codes(self) -> list[str]:
+        codes = self.settings.favorite_codes()
+        if not codes and self.league is not None:
+            codes = [self.league.code]
+        return codes
+
+    def _repaint_training(self, *, force: bool = False) -> None:
+        if self.section != "settings":
+            return
+        now = time.monotonic()
+        if not force and now - self._training_painted_at < 0.25:
+            return
+        self._training_painted_at = now
+        self._render_panes()
+
+    def _start_training(self) -> None:
+        if self.training.running:
+            return
+        codes = self._training_codes()
+        if not codes:
+            self.training = replace(
+                self.training,
+                error="Выберите лигу или задайте любимые лиги в Настройках.",
+                result=None,
+            )
+            self._repaint_training(force=True)
+            return
+        cancel = threading.Event()
+        self._training_cancel = cancel
+        self.training = TrainingState(
+            running=True, codes=tuple(codes), message="Подготовка…", stats=self.training.stats
+        )
+        self._repaint_training(force=True)
+        service = self.service
+
+        def progress(done: int, total: int, message: str) -> None:
+            def apply() -> None:
+                if not self.training.running:
+                    return
+                self.training = replace(self.training, done=done, total=total, message=message)
+                self._repaint_training(force=done == total)
+
+            post_to_ui(self.page, apply)
+
+        def work():
+            return service.collect_training_data(codes, progress=progress, cancel=cancel)
+
+        run_detached(self.page, work, self._on_training_done, self._on_training_fail)
+
+    def _cancel_training(self) -> None:
+        if self._training_cancel is not None and self.training.running:
+            self._training_cancel.set()
+            self.training = replace(self.training, cancelling=True)
+            self._repaint_training(force=True)
+
+    def _on_training_done(self, result) -> None:
+        self._training_cancel = None
+        self.training = replace(
+            self.training,
+            running=False,
+            cancelling=False,
+            result=result.summary,
+            error=None,
+            errors=tuple(result.errors),
+        )
+        self._repaint_training(force=True)
+        self._notify(result.summary, kind="info" if result.cancelled else "success")
+
+    def _on_training_fail(self, message: str) -> None:
+        self._training_cancel = None
+        self.training = replace(
+            self.training,
+            running=False,
+            cancelling=False,
+            error=f"Сбор данных не удался: {message}",
+        )
+        self._repaint_training(force=True)
+        self._notify(f"Сбор данных не удался: {message}", kind="error")
 
     def _clear_cache(self) -> None:
         self.loading = True

@@ -175,6 +175,61 @@ def run_background(
     worker.start()
 
 
+def run_detached(
+    page: ft.Page,
+    work: Callable[[], Any],
+    on_ok: Callable[[Any], None],
+    on_err: Callable[[str], None],
+) -> None:
+    """Like run_background, but never cancelled by later background tasks.
+
+    For long jobs (training-data collection) that must survive the user opening
+    matches meanwhile. Cancellation is cooperative, via the job's own Event.
+    """
+
+    async def task() -> None:
+        try:
+            result = await asyncio.to_thread(work)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            on_err(str(exc))
+            page.update()
+            return
+        on_ok(result)
+        page.update()
+
+    runner = getattr(page, "run_task", None)
+    if callable(runner):
+        runner(task)
+        return
+
+    def target() -> None:
+        try:
+            result = work()
+        except Exception as exc:  # noqa: BLE001
+            on_err(str(exc))
+            page.update()
+            return
+        on_ok(result)
+        page.update()
+
+    threading.Thread(target=target, daemon=True).start()
+
+
+def post_to_ui(page: ft.Page, callback: Callable[[], None]) -> None:
+    """Apply a UI change from a worker thread on the page's event loop."""
+    runner = getattr(page, "run_task", None)
+    if callable(runner):
+
+        async def tick() -> None:
+            callback()
+
+        runner(tick)
+        return
+    callback()
+
+
 def debounce(
     page: ft.Page,
     key: str,

@@ -45,8 +45,13 @@ ui  -->  services.factory (build_service: сборка клиентов по Set
 - TTL по умолчанию: 6 часов для `SCHEDULED`, 24 часа для `FINISHED` и таблиц.
 - Повторный запрос к API только если кэш старше TTL или записи нет.
 - Rate limit: не чаще 10 запросов в минуту (свободный план football-data.org), 10 в минуту и 90 в сутки для API-Football.
-- Таблицы: `matches`, `standings`, `meta` (football-data.org); `api_cache` (ответы API-Football, GNews и RSS с TTL), `api_usage` (суточные счётчики запросов API-Football и GNews), `af_team_map` / `af_fixture_map` (сопоставление id), `llm_cache` (ответы LLM, 12 ч).
-- «Очистить кэш» удаляет `api_cache` и `llm_cache`, но не сопоставления и не счётчик расхода.
+- Таблицы: `matches`, `standings`, `meta` (football-data.org); `api_cache` (ответы API-Football, GNews и RSS с TTL), `api_usage` (суточные счётчики запросов API-Football и GNews), `af_team_map` / `af_fixture_map` (сопоставление id), `llm_cache` (ответы LLM, 12 ч), `forecast_history` (история прогнозов для обучения и оценки, ключ `match_id + model_version`).
+- «Очистить кэш» удаляет `api_cache` и `llm_cache`, но не сопоставления, не счётчик расхода и не `forecast_history`.
+
+## Фоновые задачи
+
+- `run_background` — короткие задачи экрана (новая отменяет предыдущую).
+- `run_detached` — долгий сбор данных для обучения: не отменяется открытием матча, останавливается своим `threading.Event`; прогресс приходит в UI через `post_to_ui`.
 
 ## Секреты
 

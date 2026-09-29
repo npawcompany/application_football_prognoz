@@ -556,3 +556,89 @@ def test_save_settings_closes_old_service_and_boots_when_key_added(monkeypatch) 
     assert app.booting is True  # boot started without restart
     _drain_last(page)
     assert new_service.bootstrap_calls == 1
+
+
+class _TrainingService(FakeMatchService):
+    def __init__(self) -> None:
+        super().__init__()
+        self.collect_calls: list[list[str]] = []
+        self.cancel_seen = None
+
+    def collect_training_data(self, codes, *, progress=None, cancel=None):
+        from football_prognoz.domain.history import CollectionResult
+
+        self.collect_calls.append(list(codes))
+        self.cancel_seen = cancel
+        if progress is not None:
+            progress(1, 2, "Alpha — Beta")
+            progress(2, 2, "Gamma — Delta")
+        return CollectionResult(inserted=2, total=2, cancelled=bool(cancel and cancel.is_set()))
+
+
+def _settings_app(service, **settings_kwargs):
+    app, page, _ = _app(service=service, settings=_settings(**settings_kwargs))
+    app.booting = False
+    app.section = "settings"
+    return app, page
+
+
+def test_training_requires_a_league() -> None:
+    service = _TrainingService()
+    app, page = _settings_app(service)
+    app.league = None
+    before = len(page.scheduled)
+    app._start_training()
+    assert "Выберите лигу" in (app.training.error or "")
+    assert len(page.scheduled) == before
+    assert service.collect_calls == []
+
+
+def test_training_runs_in_background_with_progress_and_result() -> None:
+    service = _TrainingService()
+    app, page = _settings_app(service, favorite_leagues="PL,PD")
+    before = len(page.scheduled)
+    app._start_training()
+    assert app.training.running is True
+    assert app.training.codes == ("PL", "PD")
+    assert len(page.scheduled) == before + 1  # detached job, UI not blocked
+    job = page.scheduled[-1]
+    asyncio.run(job[0](*job[1], **job[2]))
+    assert service.collect_calls == [["PL", "PD"]]
+    assert app.training.running is False
+    assert "новых 2" in (app.training.result or "")
+    # progress updates were posted to the UI loop after the job
+    assert len(page.scheduled) >= before + 3
+
+
+def test_training_second_click_is_ignored_while_running() -> None:
+    service = _TrainingService()
+    app, page = _settings_app(service, favorite_leagues="PL")
+    app._start_training()
+    count = len(page.scheduled)
+    app._start_training()
+    assert len(page.scheduled) == count
+
+
+def test_training_cancel_sets_event() -> None:
+    service = _TrainingService()
+    app, page = _settings_app(service, favorite_leagues="PL")
+    app._start_training()
+    app._cancel_training()
+    assert app.training.cancelling is True
+    job = page.scheduled[-1]
+    asyncio.run(job[0](*job[1], **job[2]))
+    assert service.cancel_seen is not None and service.cancel_seen.is_set()
+    assert "остановлен" in (app.training.result or "")
+
+
+def test_training_failure_is_shown() -> None:
+    class _Broken(_TrainingService):
+        def collect_training_data(self, codes, *, progress=None, cancel=None):
+            raise RuntimeError("disk full")
+
+    app, page = _settings_app(_Broken(), favorite_leagues="PL")
+    app._start_training()
+    job = page.scheduled[-1]
+    asyncio.run(job[0](*job[1], **job[2]))
+    assert app.training.running is False
+    assert "disk full" in (app.training.error or "")

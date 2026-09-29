@@ -202,6 +202,7 @@ def settings_view(
     on_test: Callable[[], None],
     on_clear_cache: Callable[[], None],
     window_width: int = 1440,
+    training: ft.Control | None = None,
 ) -> ft.Control:
     saving = form.saving
     football_wrap = _settings_field(
@@ -365,9 +366,9 @@ def settings_view(
     )
     form_card = apply_motion(ft.Container(content=form_body, padding=4))
     form_scroll = ft.ListView(
-        [form_card],
+        [form_card] + ([training] if training is not None else []),
         expand=True,
-        spacing=0,
+        spacing=16,
         padding=0,
     )
     aside = settings_aside(form.database_path, window_width=window_width)
