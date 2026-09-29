@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
@@ -73,6 +73,14 @@ def matches_cache_key(code: str) -> str:
 def window_cache_key(day: date) -> str:
     start, _end = week_window(day)
     return f"window:{start.isoformat()}"
+
+
+@dataclass(frozen=True)
+class KeyCheck:
+    ok: bool
+    rejected: bool
+    message: str
+    leagues: int = 0
 
 
 class Cancelled(Exception):
@@ -246,6 +254,19 @@ class MatchService:
         if items:
             self._store.upsert_competitions(items)
         return items
+
+    def check_key(self) -> KeyCheck:
+        """validate_key for the UI: never raises, tells a rejected key from no network."""
+        try:
+            items = self.validate_key()
+        except FootballDataError as exc:
+            rejected = exc.status_code in KEY_REJECTED_STATUSES
+            return KeyCheck(ok=False, rejected=rejected, message=str(exc))
+        return KeyCheck(ok=True, rejected=False, message="", leagues=len(items))
+
+    def cached_league_matches(self, code: str) -> list[Match]:
+        """Season calendar of one league from SQLite (no HTTP)."""
+        return self._store.list_matches(code)
 
     def refresh_competition(self, code: str, *, force: bool = False) -> list[Match]:
         # No ?season=: the API then serves its currentSeason, which is right for Jul–Jun

@@ -299,3 +299,15 @@ def test_forecast_without_details_makes_no_requests(tmp_path: Path) -> None:
     result = service.forecast(match, explain=False, details=False)
     assert result.match.id == 7
     assert client.calls == []
+
+
+def test_check_key_tells_rejected_key_from_no_network(tmp_path: Path) -> None:
+    service, client, _store = _service(tmp_path)
+    assert service.check_key().ok is True
+    client.fail = FootballDataError("Ключ не принят", status_code=401)
+    result = service.check_key()
+    assert (result.ok, result.rejected) == (False, True)
+    assert service.key_rejected is True
+    client.fail = FootballDataError("Нет связи с football-data.org")
+    result = service.check_key()
+    assert (result.ok, result.rejected) == (False, False)

@@ -131,6 +131,8 @@ def group_day_matches(
         )
         for team_id in order:
             name, crest = names[team_id]
+            if needle and needle not in name.casefold():
+                continue  # the opponent of a searched team gets no group of its own
             groups.append(
                 MatchGroup(
                     f"team:{team_id}",
