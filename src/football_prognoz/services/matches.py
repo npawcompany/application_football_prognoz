@@ -4,7 +4,7 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,7 @@ from football_prognoz.domain.match import Match, MatchLineup
 from football_prognoz.domain.prediction import MatchForecast, Probabilities
 from football_prognoz.domain.team import Competition, StandingRow, Team, TeamRoster
 from football_prognoz.models.predictor import Predictor
+from football_prognoz.services.calendar import day_bounds, local_tz, request_range, week_window
 from football_prognoz.services.calibration import (
     calibration,
     export_calibration_csv,
@@ -32,6 +33,7 @@ from football_prognoz.services.calibration import (
 from football_prognoz.services.facts import SRC_FOOTBALL_DATA, SRC_MODEL, FactsService
 from football_prognoz.services.features import FeatureService
 from football_prognoz.services.history import ForecastHistoryService, Progress
+from football_prognoz.services.leagues import LeagueInfo, league_infos
 from football_prognoz.services.news import NewsService
 from football_prognoz.services.player_status import PlayerStatusService
 
@@ -40,9 +42,41 @@ log = logging.getLogger(__name__)
 BASE_SOURCES = (SRC_FOOTBALL_DATA, SRC_MODEL)
 
 
-def current_season_year(now: datetime | None = None) -> int:
+# Competitions whose season is a calendar year (Brasileirão runs April–December).
+CALENDAR_YEAR_CODES = frozenset({"BSA"})
+# Tournaments held every few years: the "season" is the edition (WC 2026, EC 2024/2028),
+# so no year can be derived from today's date — ask the API for its current season.
+TOURNAMENT_CODES = frozenset({"WC", "EC"})
+KEY_REJECTED_STATUSES = frozenset({400, 401, 403})
+
+
+def current_season_year(now: datetime | None = None, code: str | None = None) -> int | None:
+    """Season start year football-data.org uses for `code` at `now`.
+
+    European leagues: August–May, so the season flips in July. BSA: calendar year.
+    WC / EC: None (the API default, `currentSeason`, is the only correct answer).
+    """
     moment = now or datetime.now(UTC)
+    upper = (code or "").upper()
+    if upper in TOURNAMENT_CODES:
+        return None
+    if upper in CALENDAR_YEAR_CODES:
+        return moment.year
     return moment.year if moment.month >= 7 else moment.year - 1
+
+
+def matches_cache_key(code: str) -> str:
+    """Cache key of a league's current-season calendar (fetched without ?season=)."""
+    return f"matches:{code}:current"
+
+
+def window_cache_key(day: date) -> str:
+    start, _end = week_window(day)
+    return f"window:{start.isoformat()}"
+
+
+class Cancelled(Exception):
+    """Background enrichment stopped because the user left the match."""
 
 
 class MatchService:
@@ -66,6 +100,7 @@ class MatchService:
         self._facts = FactsService(store)
         self._history = self._make_history()
         self._calibration: tuple[tuple[int, str | None], CalibrationReport] | None = None
+        self.key_rejected = False  # football-data.org answered 400/401/403 to /competitions
 
     @property
     def llm_enabled(self) -> bool:
@@ -169,23 +204,40 @@ class MatchService:
                 return cached
         try:
             items = self._client.list_competitions()
-        except FootballDataError:
+        except FootballDataError as exc:
+            if exc.status_code in KEY_REJECTED_STATUSES:
+                self.key_rejected = True
             cached = self._store.list_competitions()
             if cached:
                 return cached
             return list(FREE_COMPETITIONS)
+        self.key_rejected = False
         if items:
             self._store.upsert_competitions(items)
             return items
         return list(FREE_COMPETITIONS)
 
+    def validate_key(self) -> list[Competition]:
+        """Check the football-data.org key with one live request. Raises FootballDataError."""
+        try:
+            items = self._client.list_competitions()
+        except FootballDataError as exc:
+            if exc.status_code in KEY_REJECTED_STATUSES:
+                self.key_rejected = True
+            raise
+        self.key_rejected = False
+        if items:
+            self._store.upsert_competitions(items)
+        return items
+
     def refresh_competition(self, code: str, *, force: bool = False) -> list[Match]:
-        season = current_season_year()
-        cache_key = f"matches:{code}:{season}"
+        # No ?season=: the API then serves its currentSeason, which is right for Jul–Jun
+        # leagues, calendar-year BSA and WC/EC editions alike.
+        cache_key = matches_cache_key(code)
         if not force and self._store.is_fresh(cache_key, TTL_SCHEDULED_HOURS):
             return self._store.list_matches(code)
         try:
-            matches = self._client.list_matches(code, season=season)
+            matches = self._client.list_matches(code)
             self._store.upsert_matches(matches)
             self._store.mark_fetched(cache_key)
         except FootballDataError:
@@ -201,6 +253,93 @@ class MatchService:
             except FootballDataError:
                 pass
         return self._store.list_matches(code)
+
+    # --- calendar (date picker) ---------------------------------------------------
+
+    def day_matches(
+        self,
+        day: date,
+        *,
+        codes: list[str] | tuple[str, ...] | None = None,
+        tz: tzinfo | None = None,
+        force: bool = False,
+        now: datetime | None = None,
+    ) -> list[Match]:
+        """Matches of one local day across leagues (or `codes`), cache first.
+
+        One GET /v4/matches?dateFrom&dateTo covers the whole week of `day`, so paging
+        through days of the same week costs zero requests. On API errors the cached
+        rows are returned; only an empty cache with a rejected key raises.
+        """
+        zone = tz or local_tz()
+        moment = now or datetime.now(UTC)
+        key = window_cache_key(day)
+        _start, week_end = week_window(day)
+        ttl = TTL_FINISHED_HOURS if week_end < moment.date() else TTL_SCHEDULED_HOURS
+        if force or not self._store.is_fresh(key, ttl):
+            date_from, date_to = request_range(day)
+            try:
+                fetched = self._client.list_matches_between(
+                    date_from.isoformat(), date_to.isoformat()
+                )
+            except FootballDataError as exc:
+                log.warning("Calendar window %s not refreshed: %s", key, exc)
+                start, end = day_bounds(day, zone)
+                cached = self._store.list_matches_between(start, end, codes)
+                if not cached and exc.status_code in KEY_REJECTED_STATUSES:
+                    raise
+                return cached
+            self._store.upsert_matches(fetched)
+            self._store.mark_fetched(key)
+        start, end = day_bounds(day, zone)
+        return self._store.list_matches_between(start, end, codes)
+
+    def cached_day_matches(
+        self,
+        day: date,
+        *,
+        codes: list[str] | tuple[str, ...] | None = None,
+        tz: tzinfo | None = None,
+    ) -> list[Match]:
+        """SQLite only — lets the UI paint a day instantly while the refresh runs."""
+        start, end = day_bounds(day, tz or local_tz())
+        return self._store.list_matches_between(start, end, codes)
+
+    # --- leagues availability / favourite pickers ---------------------------------
+
+    def league_infos(self, *, now: datetime | None = None) -> list[LeagueInfo]:
+        """Every known league with its upcoming-match count for the next ~6 months."""
+        moment = now or datetime.now(UTC)
+        competitions = self.cached_competitions()
+        counts = self._store.upcoming_counts(moment, moment + timedelta(days=183))
+        complete = [
+            item.code
+            for item in competitions
+            if self._store.fetched_at(matches_cache_key(item.code)) is not None
+        ]
+        return league_infos(competitions, counts, complete, today=moment.date())
+
+    def refresh_league_counts(
+        self,
+        codes: list[str],
+        *,
+        cancel: threading.Event | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
+    ) -> list[LeagueInfo]:
+        """Load season calendars of `codes` (cached 6 h, rate-limited) to count matches."""
+        total = len(codes)
+        for index, code in enumerate(codes, start=1):
+            if cancel is not None and cancel.is_set():
+                break
+            if progress is not None:
+                progress(index - 1, total, code)
+            self.prefetch_competition(code)
+        if progress is not None:
+            progress(total, total, "")
+        return self.league_infos()
+
+    def teams_by_league(self) -> dict[str, list[Team]]:
+        return self._store.teams_by_competition()
 
     def competition_matches(self, code: str, *, force: bool = False) -> list[Match]:
         """Refresh one league and return every stored match (any status)."""
@@ -230,12 +369,13 @@ class MatchService:
         *,
         fallback_name: str,
         fallback_crest: str | None,
+        network: bool = True,
     ) -> TeamRoster | None:
         if team_id <= 0:
             return None
         cache_key = f"team:{team_id}"
         cached = self._store.get_roster(team_id)
-        if cached and self._store.is_fresh(cache_key, TTL_FINISHED_HOURS):
+        if not network or (cached and self._store.is_fresh(cache_key, TTL_FINISHED_HOURS)):
             return cached
         get_team = getattr(self._client, "get_team", None)
         if not callable(get_team):
@@ -253,10 +393,10 @@ class MatchService:
         self._store.upsert_roster(roster)
         return roster
 
-    def _lineup_for(self, match: Match) -> MatchLineup | None:
+    def _lineup_for(self, match: Match, *, network: bool = True) -> MatchLineup | None:
         cache_key = f"match:{match.id}"
         cached = self._store.get_lineup(match.id)
-        if cached and self._store.is_fresh(cache_key, TTL_SCHEDULED_HOURS):
+        if not network or (cached and self._store.is_fresh(cache_key, TTL_SCHEDULED_HOURS)):
             return cached
         get_match = getattr(self._client, "get_match", None)
         if not callable(get_match):
@@ -270,17 +410,35 @@ class MatchService:
         self._store.upsert_lineup(match.id, lineup)
         return lineup
 
-    def forecast(self, match: Match, *, explain: bool = True) -> MatchForecast:
+    def forecast(
+        self,
+        match: Match,
+        *,
+        explain: bool = True,
+        details: bool = True,
+    ) -> MatchForecast:
+        """1X2 + preliminary score from local data (Elo + Poisson on cached matches).
+
+        `details=False` is the UI path: no HTTP at all, rosters/lineup come from the
+        cache only, so the numbers appear immediately. The background `enrich` step
+        then loads club cards, lineup, player status, news and the LLM analysis.
+        """
         features = self._features.build(match)
         probabilities = self._predictor.predict(match, features)
         scoreline = self._predictor.preliminary_score(features)
         home_roster = self._roster_for(
-            match.home_id, fallback_name=match.home_name, fallback_crest=match.home_crest
+            match.home_id,
+            fallback_name=match.home_name,
+            fallback_crest=match.home_crest,
+            network=details,
         )
         away_roster = self._roster_for(
-            match.away_id, fallback_name=match.away_name, fallback_crest=match.away_crest
+            match.away_id,
+            fallback_name=match.away_name,
+            fallback_crest=match.away_crest,
+            network=details,
         )
-        lineup = self._lineup_for(match)
+        lineup = self._lineup_for(match, network=details)
         stored = self._store.get_match(match.id) or match
         result = MatchForecast(
             match=stored,
@@ -297,6 +455,25 @@ class MatchService:
         if explain:
             return self.enrich(result, explain=True)
         return result
+
+    def attach_details(self, forecast: MatchForecast) -> MatchForecast:
+        """Club cards + lineup from football-data.org (cached; bounded rate-limit wait)."""
+        match = forecast.match
+        home = self._roster_for(
+            match.home_id, fallback_name=match.home_name, fallback_crest=match.home_crest
+        )
+        away = self._roster_for(
+            match.away_id, fallback_name=match.away_name, fallback_crest=match.away_crest
+        )
+        lineup = self._lineup_for(match)
+        stored = self._store.get_match(match.id) or match
+        return replace(
+            forecast,
+            match=stored,
+            home_roster=home or forecast.home_roster,
+            away_roster=away or forecast.away_roster,
+            lineup=lineup or forecast.lineup,
+        )
 
     def _history_hint(self, probabilities: Probabilities) -> HistoricalHint | None:
         try:
@@ -375,10 +552,35 @@ class MatchService:
             log.warning("History summary failed: %s", exc)
             return None
 
-    def enrich(self, forecast: MatchForecast, *, explain: bool = True) -> MatchForecast:
-        """Background step after the numbers are shown: player status, then LLM."""
-        enriched = self.attach_player_status(forecast)
+    def enrich(
+        self,
+        forecast: MatchForecast,
+        *,
+        explain: bool = True,
+        cancel: threading.Event | None = None,
+        on_step: Callable[[MatchForecast], None] | None = None,
+    ) -> MatchForecast:
+        """Background step after the numbers are shown: details, player status, news, LLM.
+
+        The 1X2 probabilities are never touched. `cancel` is checked between steps
+        (raises Cancelled); `on_step` receives the forecast before the slow LLM call so
+        the UI can show squads and news while «Идёт анализ…» is still running.
+        """
+
+        def check() -> None:
+            if cancel is not None and cancel.is_set():
+                raise Cancelled()
+
+        check()
+        enriched = self.attach_details(forecast)
+        check()
+        enriched = self.attach_player_status(enriched)
+        check()
         enriched = self.attach_news(enriched)
+        check()
+        if on_step is not None:
+            on_step(enriched)
         if explain and self._explainer.enabled:
             enriched = self.explain_forecast(enriched)
+            check()
         return enriched
