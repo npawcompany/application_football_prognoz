@@ -280,6 +280,7 @@ _COMPETITION_COUNTRY: dict[str, str] = {
     "BSA": "Brazil",
     "CL": "Europe",
     "EC": "Europe",
+    "WC": "World",
 }
 
 

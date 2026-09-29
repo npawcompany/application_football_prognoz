@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from football_prognoz.domain.history import ForecastRecord
@@ -22,6 +24,15 @@ def _parse_dt(value: str | None) -> datetime:
     if not value:
         return datetime.fromtimestamp(0, tz=UTC)
     return datetime.fromisoformat(value)
+
+
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
 
 
 def _iso(value: datetime) -> str:
@@ -104,10 +115,26 @@ class SQLiteStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path)
+    def _open(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path, timeout=10.0)
         conn.row_factory = sqlite3.Row
         return conn
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """One short-lived connection: commit on success, roll back on error, always close.
+
+        (`with sqlite3.connect(...)` only commits; it never closes the connection.)
+        """
+        conn = self._open()
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init(self) -> None:
         with self._connect() as conn:
@@ -254,6 +281,20 @@ class SQLiteStore:
         match_cols = {row[1] for row in conn.execute("PRAGMA table_info(matches)")}
         if "venue" not in match_cols:
             conn.execute("ALTER TABLE matches ADD COLUMN venue TEXT")
+        comp_cols = {row[1] for row in conn.execute("PRAGMA table_info(competitions)")}
+        for column in (
+            "type",
+            "area_name",
+            "area_code",
+            "area_flag",
+            "season_start",
+            "season_end",
+        ):
+            if column not in comp_cols:
+                conn.execute(f"ALTER TABLE competitions ADD COLUMN {column} TEXT")
+        standing_cols = {row[1] for row in conn.execute("PRAGMA table_info(standings)")}
+        if "group_name" not in standing_cols:
+            conn.execute("ALTER TABLE standings ADD COLUMN group_name TEXT")
         roster_cols = {row[1] for row in conn.execute("PRAGMA table_info(team_rosters)")}
         for column in ("venue", "city", "country", "country_code"):
             if column not in roster_cols:
@@ -637,27 +678,68 @@ class SQLiteStore:
             for item in items:
                 conn.execute(
                     """
-                    INSERT INTO competitions (code, id, name, emblem, fetched_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO competitions (
+                        code, id, name, emblem, type, area_name, area_code, area_flag,
+                        season_start, season_end, fetched_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(code) DO UPDATE SET
                         id = excluded.id,
                         name = excluded.name,
                         emblem = excluded.emblem,
+                        type = excluded.type,
+                        area_name = excluded.area_name,
+                        area_code = excluded.area_code,
+                        area_flag = excluded.area_flag,
+                        season_start = excluded.season_start,
+                        season_end = excluded.season_end,
                         fetched_at = excluded.fetched_at
                     """,
-                    (item.code, item.id, item.name, item.emblem, now),
+                    (
+                        item.code,
+                        item.id,
+                        item.name,
+                        item.emblem,
+                        item.type,
+                        item.area_name,
+                        item.area_code,
+                        item.area_flag,
+                        item.season_start.isoformat() if item.season_start else None,
+                        item.season_end.isoformat() if item.season_end else None,
+                        now,
+                    ),
                 )
         self.mark_fetched("competitions")
 
     def list_competitions(self) -> list[Competition]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, code, name, emblem FROM competitions ORDER BY name"
+                """
+                SELECT id, code, name, emblem, type, area_name, area_code, area_flag,
+                       season_start, season_end
+                FROM competitions ORDER BY name
+                """
             ).fetchall()
         return [
-            Competition(id=row["id"], code=row["code"], name=row["name"], emblem=row["emblem"])
+            Competition(
+                id=row["id"],
+                code=row["code"],
+                name=row["name"],
+                emblem=row["emblem"],
+                type=row["type"],
+                area_name=row["area_name"],
+                area_code=row["area_code"],
+                area_flag=row["area_flag"],
+                season_start=_parse_date(row["season_start"]),
+                season_end=_parse_date(row["season_end"]),
+            )
             for row in rows
         ]
+
+    def get_competition(self, code: str) -> Competition | None:
+        for item in self.list_competitions():
+            if item.code == code:
+                return item
+        return None
 
     def upsert_matches(self, matches: list[Match]) -> None:
         now = _utcnow().isoformat()
@@ -690,7 +772,7 @@ class SQLiteStore:
                     (
                         match.id,
                         match.competition_code,
-                        match.utc_date.isoformat(),
+                        _iso(match.utc_date),
                         match.status.value,
                         match.matchday,
                         match.home_id,
@@ -723,6 +805,66 @@ class SQLiteStore:
             rows = conn.execute(query, params).fetchall()
         return [self._match_from_row(row) for row in rows]
 
+    def list_matches_between(
+        self,
+        start: datetime,
+        end: datetime,
+        codes: list[str] | tuple[str, ...] | None = None,
+    ) -> list[Match]:
+        """Matches with start <= kickoff < end (UTC), optionally limited to competitions."""
+        query = """
+            SELECT id, competition_code, utc_date, status, matchday,
+                   home_id, home_name, away_id, away_name,
+                   home_goals, away_goals, winner, home_crest, away_crest, venue
+            FROM matches WHERE utc_date >= ? AND utc_date < ?
+        """
+        params: list[object] = [_iso(start), _iso(end)]
+        if codes:
+            query += f" AND competition_code IN ({', '.join('?' for _ in codes)})"
+            params.extend(codes)
+        query += " ORDER BY utc_date, id"
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [self._match_from_row(row) for row in rows]
+
+    def upcoming_counts(self, start: datetime, end: datetime) -> dict[str, int]:
+        """Per competition: SCHEDULED/TIMED matches with kickoff in [start, end)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT competition_code, COUNT(*) AS n FROM matches
+                WHERE status IN ('SCHEDULED', 'TIMED') AND utc_date >= ? AND utc_date < ?
+                GROUP BY competition_code
+                """,
+                (_iso(start), _iso(end)),
+            ).fetchall()
+        return {str(row["competition_code"]): int(row["n"]) for row in rows}
+
+    def teams_by_competition(self) -> dict[str, list[Team]]:
+        """Distinct teams per competition from cached matches (for favourite pickers)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT competition_code AS code, id, MIN(name) AS name, MAX(crest) AS crest
+                FROM (
+                    SELECT competition_code, home_id AS id, home_name AS name,
+                           home_crest AS crest FROM matches
+                    UNION ALL
+                    SELECT competition_code, away_id AS id, away_name AS name,
+                           away_crest AS crest FROM matches
+                )
+                WHERE id IS NOT NULL AND id > 0 AND TRIM(COALESCE(name, '')) != ''
+                GROUP BY competition_code, id
+                ORDER BY name COLLATE NOCASE
+                """
+            ).fetchall()
+        grouped: dict[str, list[Team]] = {}
+        for row in rows:
+            grouped.setdefault(str(row["code"]), []).append(
+                Team(id=int(row["id"]), name=str(row["name"]), crest=row["crest"])
+            )
+        return grouped
+
     def get_match(self, match_id: int) -> Match | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -748,8 +890,9 @@ class SQLiteStore:
                     """
                     INSERT INTO standings (
                         competition_code, team_id, team_name, position, played,
-                        won, draw, lost, points, goals_for, goals_against, fetched_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        won, draw, lost, points, goals_for, goals_against, group_name,
+                        fetched_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         competition_code,
@@ -763,6 +906,7 @@ class SQLiteStore:
                         row.points,
                         row.goals_for,
                         row.goals_against,
+                        row.group,
                         now,
                     ),
                 )
@@ -773,10 +917,10 @@ class SQLiteStore:
             rows = conn.execute(
                 """
                 SELECT team_id, team_name, position, played, won, draw, lost,
-                       points, goals_for, goals_against
+                       points, goals_for, goals_against, group_name
                 FROM standings
                 WHERE competition_code = ?
-                ORDER BY position
+                ORDER BY group_name, position
                 """,
                 (competition_code,),
             ).fetchall()
@@ -792,6 +936,7 @@ class SQLiteStore:
                 points=row["points"],
                 goals_for=row["goals_for"],
                 goals_against=row["goals_against"],
+                group=row["group_name"],
             )
             for row in rows
         ]
