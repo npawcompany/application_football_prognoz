@@ -182,6 +182,9 @@ class FakeMatchService:
     def cached_league_matches(self, code):
         return []
 
+    def cached_match_days(self, first, last, *, codes=None, tz=None):
+        return [first]
+
     def teams_by_league(self):
         return {"PL": [Team(id=57, name="Arsenal")]}
 
@@ -983,8 +986,12 @@ def test_handlers_never_call_the_service_on_the_ui_thread(tmp_path, monkeypatch)
     app._goto("settings")
     app._refresh_counts()
     app._check_key()
+    delivered: list = []
+    app._picker_day(date.today(), lambda day, rows, loading: delivered.append((day, loading)))
+    app._picker_month(date(2026, 10, 1), date(2026, 10, 31), lambda m, d: delivered.append(d))
     _drain_pending(page)
     assert audit.on_ui == []
+    assert (date.today(), False) in delivered and {date(2026, 10, 1)} in delivered
     for name in (
         "cached_competitions",
         "bootstrap",
@@ -999,6 +1006,7 @@ def test_handlers_never_call_the_service_on_the_ui_thread(tmp_path, monkeypatch)
         "refresh_league_counts",
         "check_key",
         "list_competitions",
+        "cached_match_days",
     ):
         assert name in audit.off_ui, name
 

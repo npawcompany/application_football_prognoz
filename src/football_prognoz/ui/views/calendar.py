@@ -21,6 +21,7 @@ from football_prognoz.services.calendar import (
     group_day_matches,
 )
 from football_prognoz.ui.components.crest import crest_image
+from football_prognoz.ui.components.day_picker import DayLoader, MatchDayPicker, MonthLoader
 from football_prognoz.ui.components.filter_bar import chip
 from football_prognoz.ui.components.match_card import match_card
 from football_prognoz.ui.motion import with_cursor
@@ -59,6 +60,8 @@ class CalendarPanel:
         on_jump: Callable[[int], None],
         on_collapse: Callable[[], None] | None = None,
         today: Callable[[], date] = date.today,
+        load_picker_day: DayLoader | None = None,
+        load_picker_month: MonthLoader | None = None,
     ) -> None:
         self._on_day = on_day
         self._on_open = on_open
@@ -67,6 +70,9 @@ class CalendarPanel:
         self._on_jump = on_jump
         self._on_collapse = on_collapse
         self._today = today
+        self._load_picker_day = load_picker_day
+        self._load_picker_month = load_picker_month
+        self.picker: MatchDayPicker | None = None
         self.day: date = today()
         self.mode = GroupMode.LEAGUE
         self.team_query = ""
@@ -286,7 +292,20 @@ class CalendarPanel:
         if not is_mounted(self.control):
             return
         page = self.control.page
+        if self._load_picker_day is not None:
+            # Russian month grid + the plain list of that day's matches (see day_picker).
+            self.picker = MatchDayPicker(
+                day=self.day,
+                today=self._today(),
+                on_pick=self.go_to,
+                load_day=self._load_picker_day,
+                load_month=self._load_picker_month,
+                competitions=self.competitions,
+            )
+            self.picker.open(page)
+            return
         picker = ft.DatePicker(
+            locale=ft.Locale("ru", "RU"),
             value=datetime.combine(self.day, datetime.min.time()),
             first_date=datetime.combine(FIRST_DAY, datetime.min.time()),
             last_date=datetime.combine(LAST_DAY, datetime.min.time()),

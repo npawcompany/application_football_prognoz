@@ -23,9 +23,11 @@ from football_prognoz.ui.theme import (
     ACCENT,
     BG,
     BREAKPOINT_MEDIUM,
+    CARD,
     FG,
     MUTED,
     SURFACE,
+    glass_border,
     scaled,
 )
 from football_prognoz.ui.theme import DRAW as DRAW_COLOR
@@ -406,6 +408,29 @@ def _gate_banner(text: str) -> ft.Control:
     )
 
 
+SETTINGS_THREE_COLUMNS = 1500
+
+
+def _section(title: str, controls: list[ft.Control]) -> ft.Control:
+    return apply_motion(
+        ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(title, size=16, weight=ft.FontWeight.W_600, color=FG),
+                    *controls,
+                ],
+                spacing=12,
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
+            bgcolor=CARD,
+            border=glass_border(),
+            border_radius=12,
+            padding=14,
+        )
+    )
+
+
 def settings_view(
     form: SettingsForm,
     *,
@@ -514,7 +539,42 @@ def settings_view(
             }
         )
 
-    form_body = ft.Column(
+    buttons = ft.Row(
+        [
+            with_cursor(
+                ft.FilledButton(
+                    "Сохранить",
+                    icon=ft.Icons.SAVE,
+                    bgcolor=ACCENT,
+                    color="#0F172A",
+                    disabled=saving,
+                    on_click=_submit,
+                ),
+                interactive=True,
+            ),
+            with_cursor(
+                ft.OutlinedButton(
+                    "Проверить football-data.org",
+                    disabled=saving,
+                    on_click=lambda _e: on_test(),
+                ),
+                interactive=True,
+            ),
+            with_cursor(
+                ft.OutlinedButton(
+                    "Очистить кэш",
+                    disabled=saving,
+                    on_click=lambda _e: on_clear_cache(),
+                ),
+                interactive=True,
+            ),
+        ],
+        wrap=True,
+        spacing=8,
+        run_spacing=8,
+    )
+    keys_card = _section(
+        "Ключи и подключения",
         [
             football_wrap,
             ollama_key_wrap,
@@ -524,73 +584,57 @@ def settings_view(
             api_football_wrap,
             gnews_wrap,
             _switch_row(rss_sw, window_width=window_width),
-            favorites_wrap,
+        ],
+    )
+    favorites_card = _section("Избранное", [favorites_wrap])
+    interface_card = _section(
+        "Запуск и интерфейс",
+        [
             _switch_row(prefetch_sw, window_width=window_width),
             _switch_row(ai_sw, window_width=window_width),
             _switch_row(compact_sw, window_width=window_width),
             _switch_row(system_sw, window_width=window_width),
-            ft.Row(
-                [
-                    with_cursor(
-                        ft.FilledButton(
-                            "Сохранить",
-                            bgcolor=ACCENT,
-                            color="#0F172A",
-                            disabled=saving,
-                            on_click=_submit,
-                        ),
-                        interactive=True,
-                    ),
-                    with_cursor(
-                        ft.OutlinedButton(
-                            "Проверить football-data.org",
-                            disabled=saving,
-                            on_click=lambda _e: on_test(),
-                        ),
-                        interactive=True,
-                    ),
-                    with_cursor(
-                        ft.OutlinedButton(
-                            "Очистить кэш",
-                            disabled=saving,
-                            on_click=lambda _e: on_clear_cache(),
-                        ),
-                        interactive=True,
-                    ),
-                ],
-                wrap=True,
-                spacing=8,
-                run_spacing=8,
-            ),
         ],
-        spacing=12,
-        tight=True,
-        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
-    form_card = apply_motion(ft.Container(content=form_body, padding=4))
-    form_scroll = ft.ListView(
-        [form_card] + ([training] if training is not None else []),
-        expand=True,
-        spacing=16,
-        padding=0,
-    )
+    extra = [training] if training is not None else []
     aside = settings_aside(form.database_path, window_width=window_width)
-    if window_width >= BREAKPOINT_MEDIUM:
+
+    def column(items: list[ft.Control]) -> ft.Control:
+        return ft.Container(
+            content=ft.ListView(items, expand=True, spacing=16, padding=0),
+            expand=True,
+        )
+
+    if window_width >= SETTINGS_THREE_COLUMNS:
+        # Wide windows: keys | favourites + interface + training | notes. No empty half.
         layout: ft.Control = ft.Row(
             [
-                ft.Container(content=form_scroll, expand=True),
+                column([keys_card]),
+                column([favorites_card, interface_card, *extra]),
                 aside,
             ],
-            spacing=24,
+            spacing=20,
             expand=True,
-            vertical_alignment=ft.CrossAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
+    elif window_width >= BREAKPOINT_MEDIUM:
+        layout = ft.Row(
+            [
+                column([keys_card, favorites_card, interface_card, *extra]),
+                aside,
+            ],
+            spacing=20,
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
         )
     else:
-        layout = ft.Column(
-            [form_scroll, aside],
-            spacing=16,
-            expand=True,
-        )
+        layout = column([keys_card, favorites_card, interface_card, *extra, aside])
+    # The action bar stays visible below the scrolling columns.
+    action_bar = ft.Container(
+        content=buttons,
+        padding=ft.Padding.only(top=8),
+        border=ft.Border.only(top=ft.BorderSide(1, ft.Colors.with_opacity(0.12, FG))),
+    )
     banners: list[ft.Control] = []
     if saving:
         banners.append(ft.ProgressRing(color=ACCENT))
@@ -610,6 +654,7 @@ def settings_view(
                 *([_gate_banner(form.gate_notice)] if form.gate_notice else []),
                 layout,
                 *banners,
+                action_bar,
             ],
             spacing=16,
             expand=True,

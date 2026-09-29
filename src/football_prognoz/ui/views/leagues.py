@@ -16,11 +16,13 @@ from football_prognoz.services.leagues import (
     LeagueGrouping,
     LeagueInfo,
     LeagueType,
-    areas,
+    area_of,
+    area_options,
     filter_leagues,
     group_leagues,
 )
 from football_prognoz.ui.components.filter_bar import chip
+from football_prognoz.ui.components.flag import flag_mark
 from football_prognoz.ui.components.league_card import league_card
 from football_prognoz.ui.components.section_header import section_header
 from football_prognoz.ui.motion import with_cursor
@@ -30,10 +32,11 @@ from football_prognoz.ui.theme import (
     BG,
     BORDER,
     FG,
-    LEAGUE_ASPECT_RATIO,
     MUTED,
     SURFACE,
-    grid_extent,
+    column_span,
+    grid_columns,
+    leagues_pane_width,
 )
 
 ALL_AREAS = "__all__"
@@ -56,6 +59,8 @@ class LeaguesPanel:
         self.loading = False
         self.error: str | None = None
         self.window_width = 1440
+        self._area_options: dict = {}
+        self.pane_width: int | None = None  # set by the app (split or full width)
 
         self._search = ft.TextField(
             value="",
@@ -87,9 +92,10 @@ class LeaguesPanel:
             focused_border_color=ACCENT,
             border_radius=8,
             text_size=13,
-            width=200,
-            menu_height=360,
+            width=230,
+            menu_height=420,
             label="Страна / регион",
+            leading_icon=ft.Icons.PUBLIC,
             on_select=self._on_area,
         )
         self._active = ft.Switch(
@@ -99,9 +105,9 @@ class LeaguesPanel:
             label_text_style=ft.TextStyle(color=FG, size=12),
             on_change=lambda e: self.update_filter(active_only=bool(e.control.value)),
         )
-        self._type_row = ft.Row([], spacing=6, run_spacing=6, wrap=True)
-        self._group_row = ft.Row([], spacing=6, run_spacing=6, wrap=True)
-        self._summary = ft.Text("", size=11, color=MUTED)
+        self._type_row = ft.Row([], spacing=6, run_spacing=6, tight=True)
+        self._group_row = ft.Row([], spacing=6, run_spacing=6, tight=True)
+        self._summary = ft.Text("", size=12, color=MUTED)
         self._banner = ft.Column([], spacing=6)
         self._list = ft.ListView(controls=[], expand=True, spacing=10, padding=0)
         header = section_header(
@@ -120,17 +126,24 @@ class LeaguesPanel:
             content=ft.Column(
                 [
                     header,
-                    ft.Row([self._search], spacing=8),
                     ft.Row(
-                        [self._area, self._active],
+                        [self._search, self._area, self._active],
                         spacing=12,
-                        run_spacing=8,
-                        wrap=True,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    self._type_row,
-                    self._group_row,
-                    self._summary,
+                    ft.Row(
+                        [
+                            self._type_row,
+                            ft.Container(width=1, height=22, bgcolor=BORDER),
+                            self._group_row,
+                            ft.Container(width=1, height=22, bgcolor=BORDER),
+                            self._summary,
+                        ],
+                        spacing=12,
+                        wrap=True,
+                        run_spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
                     self._banner,
                     ft.Container(content=self._list, expand=True),
                 ],
@@ -158,11 +171,25 @@ class LeaguesPanel:
         self.selected_code = selected_code
         self.loading = loading
         self.error = error
-        known = areas(self.infos)
-        if self.flt.area and self.flt.area not in known:
+        options = area_options(self.infos)
+        self._area_options = {option.name: option for option in options}
+        if self.flt.area and self.flt.area not in self._area_options:
             self.flt = LeagueFilter(**{**self.flt.__dict__, "area": ""})
-        self._area.options = [ft.DropdownOption(key=ALL_AREAS, text="Все страны")] + [
-            ft.DropdownOption(key=name, text=name) for name in known
+        self._area.options = [
+            ft.DropdownOption(
+                key=ALL_AREAS,
+                text=f"Все страны ({len(self.infos)})",
+                leading_icon=ft.Icon(ft.Icons.PUBLIC, size=16, color=MUTED),
+            )
+        ] + [
+            ft.DropdownOption(
+                key=option.name,
+                text=f"{option.name} ({option.count})",
+                leading_icon=flag_mark(
+                    option.name, size=20, iso3=option.code, flag_url=option.flag_url
+                ),
+            )
+            for option in options
         ]
         self._area.value = self.flt.area or ALL_AREAS
         self.repaint()
@@ -185,6 +212,13 @@ class LeaguesPanel:
     def visible_groups(self) -> list[tuple[str, list[LeagueInfo]]]:
         picked = filter_leagues(self.infos, self.flt, self.favorite_codes)
         return group_leagues(picked, self.grouping, self.favorite_codes)
+
+    def _area_icon(self) -> ft.Control:
+        option = self._area_options.get(self.flt.area) if self.flt.area else None
+        if option is None:
+            return ft.Icon(ft.Icons.PUBLIC, size=16, color=MUTED)
+        mark = flag_mark(option.name, size=20, iso3=option.code, flag_url=option.flag_url)
+        return mark or ft.Icon(ft.Icons.PUBLIC, size=16, color=MUTED)
 
     def repaint(self) -> None:
         self._sync()
@@ -238,6 +272,7 @@ class LeaguesPanel:
             ),
         ]
         self._active.value = flt.active_only
+        self._area.leading_icon = self._area_icon()
         groups = self.visible_groups()
         shown = sum(len(items) for _title, items in groups)
         self._summary.value = f"Показано {shown} из {len(self.infos)}"
@@ -264,16 +299,31 @@ class LeaguesPanel:
         rows: list[ft.Control] = []
         for title, items in groups:
             if title:
-                rows.append(
-                    ft.Text(
-                        f"{title} · {len(items)}", size=13, weight=ft.FontWeight.W_600, color=FG
-                    )
-                )
+                rows.append(self._group_title(title, items))
             rows.append(self._grid(items))
         self._list.controls = rows
 
+    def _group_title(self, title: str, items: list[LeagueInfo]) -> ft.Control:
+        bits: list[ft.Control] = []
+        if self.grouping is LeagueGrouping.AREA and items:
+            comp = items[0].competition
+            mark = flag_mark(area_of(comp), size=20, iso3=comp.area_code, flag_url=comp.area_flag)
+            if mark is not None:
+                bits.append(mark)
+        bits.append(
+            ft.Text(f"{title} · {len(items)}", size=13, weight=ft.FontWeight.W_600, color=FG)
+        )
+        return ft.Container(
+            content=ft.Row(bits, spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.Padding.only(top=4),
+        )
+
+    def columns(self) -> int:
+        width = self.pane_width or leagues_pane_width(self.window_width, split=False)
+        return grid_columns(width)
+
     def _grid(self, items: list[LeagueInfo]) -> ft.Control:
-        extent = grid_extent(self.window_width)
+        span = column_span(self.columns())
         cards = [
             ft.Container(
                 content=with_cursor(
@@ -287,10 +337,10 @@ class LeaguesPanel:
                     ),
                     interactive=True,
                 ),
-                width=extent,
-                height=round(extent / LEAGUE_ASPECT_RATIO),
+                col=span,
             )
             for info in items
         ]
-        # A wrapping Row of fixed-size tiles (no expand children — see ui_check).
-        return ft.Row(cards, wrap=True, spacing=10, run_spacing=10)
+        # Flet's ResponsiveRow breakpoints follow the window, not the pane, so the span
+        # comes from the pane width we know: tiles always fill the row edge to edge.
+        return ft.ResponsiveRow(cards, spacing=10, run_spacing=10)

@@ -34,6 +34,7 @@ from football_prognoz.ui.components.ai_analysis import (
     AI_READY,
 )
 from football_prognoz.ui.components.crest import load_crest_manifest
+from football_prognoz.ui.components.day_overview import day_overview
 from football_prognoz.ui.components.settings_panel import SettingsForm
 from football_prognoz.ui.components.splash import splash_view, start_spin
 from football_prognoz.ui.components.training_panel import (
@@ -62,7 +63,10 @@ from football_prognoz.ui.save_dialog import (
 from football_prognoz.ui.theme import (
     BG,
     BODY_PADDING,
+    calendar_width,
     configure_window,
+    content_width,
+    leagues_pane_width,
     use_rail,
     use_split,
     window_width,
@@ -176,6 +180,8 @@ class FootballApp:
             on_jump=self._jump_league_day,
             on_collapse=self._toggle_calendar,
             today=today,
+            load_picker_day=self._picker_day,
+            load_picker_month=self._picker_month,
         )
         self._pane = ft.Container(expand=True, padding=BODY_PADDING, bgcolor=BG)
         self.body = with_cursor(
@@ -224,6 +230,11 @@ class FootballApp:
             center_title=False,
             bgcolor=BG,
             toolbar_height=44,
+        )
+        # Russian Material widgets (text menus, any system picker): weeks from Monday.
+        page.locale_configuration = ft.LocaleConfiguration(
+            supported_locales=[ft.Locale("ru", "RU"), ft.Locale("en", "US")],
+            current_locale=ft.Locale("ru", "RU"),
         )
         page.on_resize = self._on_resized
         page.on_resized = self._on_resized
@@ -395,6 +406,8 @@ class FootballApp:
         self.calendar.favorite_team_ids = tuple(self.settings.favorite_team_ids())
         self.calendar.competitions = {item.code: item for item in self.competitions}
         self.leagues_panel.window_width = width
+        split_leagues = use_split(width) and self.section == "leagues"
+        self.leagues_panel.pane_width = leagues_pane_width(width, split=split_leagues)
 
     def _render_panes(self, *, parts: str = "all") -> None:
         width = window_width(self.page)
@@ -426,6 +439,7 @@ class FootballApp:
             if parts in {"all", "right"}:
                 right = self.calendar.control
             self._left_slot.expand = 3
+            self._left_slot.width = None
             self._right_slot.expand = 2
         else:
             self.calendar.embedded = True
@@ -435,7 +449,9 @@ class FootballApp:
                 left = self._collapsed_rail() if self.calendar_collapsed else self.calendar.control
             if parts in {"all", "right"}:
                 right = self._forecast_pane(width, embedded=True)
-            self._left_slot.expand = None if self.calendar_collapsed else 1
+            # Calendar about a third (380–560 px); the forecast takes the rest.
+            self._left_slot.expand = None
+            self._left_slot.width = None if self.calendar_collapsed else calendar_width(width)
             self._right_slot.expand = 1
         if left is not None:
             self._left_slot.content = left
@@ -505,10 +521,28 @@ class FootballApp:
 
     def _forecast_pane(self, width: int, *, embedded: bool) -> ft.Control:
         if self.forecast is None and not (self.loading and self.busy == "forecast"):
+            if embedded:
+                return ft.Container(
+                    content=ft.Column(
+                        [
+                            day_overview(
+                                self.calendar.matches,
+                                {item.code: item for item in self.competitions},
+                                self.calendar.day,
+                                today=self._today(),
+                                now=datetime.now(UTC),
+                                loading=self.calendar.loading,
+                            )
+                        ],
+                        scroll=ft.ScrollMode.AUTO,
+                    ),
+                    alignment=ft.Alignment.TOP_CENTER,
+                    expand=True,
+                )
             return ft.Container(
                 content=info_banner(
                     "Выберите матч в календаре, чтобы увидеть прогноз.",
-                    action_hint="Календарь слева" if embedded else "Откройте вкладку Календарь",
+                    action_hint="Откройте вкладку Календарь",
                 ),
                 alignment=ft.Alignment.TOP_CENTER,
                 expand=True,
@@ -523,7 +557,15 @@ class FootballApp:
             show_ai_block=self.settings.show_ai_block,
             ai_state=self.ai_state,
             ai_error=self.ai_error,
+            pane_width=self._forecast_width(width, embedded=embedded),
         )
+
+    def _forecast_width(self, width: int, *, embedded: bool) -> int:
+        body = content_width(width)
+        if not embedded:
+            return body
+        left = 48 if self.calendar_collapsed else calendar_width(width)
+        return body - left - 17  # divider + slot paddings
 
     def _settings_pane(self, width: int) -> ft.Control:
         self._training_slot.content = self._training_block(width)
@@ -868,6 +910,7 @@ class FootballApp:
             if self._day_job.is_current(generation) and self.calendar.loading:
                 self._calendar_key = key
                 self.calendar.set_data(rows, loading=True)
+                self._refresh_overview()
 
         def work() -> list[Match] | None:
             if cancel.is_set():
@@ -890,6 +933,7 @@ class FootballApp:
             self._day_job.finish(generation)
             self._calendar_key = key
             self.calendar.set_data(matches, loading=False)
+            self._refresh_overview()
 
         def fail(message: str) -> None:
             if not self._day_job.is_current(generation):
@@ -899,9 +943,66 @@ class FootballApp:
 
         run_background(self.page, work, ok, fail, cancel_previous=True, key="calendar")
 
+    def _refresh_overview(self) -> None:
+        """The day summary on the right follows the calendar until a match is opened."""
+        if self.forecast is None and self._pane_kind == "split" and self.section == "fixtures":
+            if not (self.loading and self.busy == "forecast"):
+                self._render_panes(parts="right")
+
     def _keep_same_day(self, key: tuple[date, tuple[str, ...]]) -> list[Match]:
         """While the day reloads, keep its rows on screen (refresh), else start empty."""
         return list(self.calendar.matches) if key == self._calendar_key else []
+
+    # --- match-day picker data (worker threads; the dialog only paints) ---------------------
+
+    def _picker_codes(self) -> list[str] | None:
+        return [self.league.code] if self.league is not None else None
+
+    def _picker_day(self, day: date, deliver: Callable[[date, list[Match], bool], None]) -> None:
+        service = self.service
+        codes = self._picker_codes()
+        tz = local_tz()
+        cached: list[Match] = []
+
+        def work() -> list[Match]:
+            getter = getattr(service, "cached_day_matches", None)
+            if callable(getter):
+                cached[:] = list(getter(day, codes=codes, tz=tz))
+                rows = list(cached)
+                post_to_ui(self.page, lambda: deliver(day, rows, True))
+            if self.gate.locked:
+                return list(cached)
+            # One request per week at most (the week window is cached afterwards).
+            return list(service.day_matches(day, codes=codes, tz=tz))
+
+        run_background(
+            self.page,
+            work,
+            lambda rows: deliver(day, rows, False),
+            lambda _message: deliver(day, list(cached), False),
+            key="picker-day",
+        )
+
+    def _picker_month(
+        self, first: date, last: date, deliver: Callable[[date, set[date]], None]
+    ) -> None:
+        service = self.service
+        codes = self._picker_codes()
+        tz = local_tz()
+
+        def work() -> set[date]:
+            getter = getattr(service, "cached_match_days", None)
+            if not callable(getter):
+                return set()
+            return set(getter(first, last, codes=codes, tz=tz))
+
+        run_background(
+            self.page,
+            work,
+            lambda days: deliver(first, days),
+            lambda _message: None,
+            key="picker-month",
+        )
 
     # --- forecast + background enrichment ----------------------------------------------
 

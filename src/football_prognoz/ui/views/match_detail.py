@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import flet as ft
 
+from football_prognoz.domain.match import LIVE_STATUSES, Match
 from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.ui.components.ai_analysis import ai_block, sources_line
 from football_prognoz.ui.components.crest import crest_image
@@ -13,6 +14,7 @@ from football_prognoz.ui.components.h2h_table import h2h_table
 from football_prognoz.ui.components.news_card import news_card
 from football_prognoz.ui.components.player_status_card import player_status_card
 from football_prognoz.ui.components.probability_bar import preliminary_score_card, probability_bar
+from football_prognoz.ui.components.result_banner import result_banner
 from football_prognoz.ui.components.squad_card import squad_card
 from football_prognoz.ui.components.standings_duel import standings_duel
 from football_prognoz.ui.components.team_label import team_label
@@ -115,6 +117,28 @@ def _fact_grid(facts: list[ft.Control], columns: int) -> ft.Control:
     return ft.Column(rows, spacing=10, tight=True)
 
 
+def _optional(control: ft.Control | None) -> list[ft.Control]:
+    return [control] if control is not None else []
+
+
+def _centre_score(match: Match, width: int) -> ft.Control:
+    """Final (or live) score between the club names; a dash before kickoff."""
+    if match.has_score and (match.is_played or match.status in LIVE_STATUSES):
+        return ft.Container(
+            content=ft.Text(
+                match.score_label,
+                size=scaled(24, width),
+                weight=ft.FontWeight.BOLD,
+                color=FG,
+            ),
+            bgcolor=SURFACE,
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=2),
+            tooltip=match.status_text,
+        )
+    return ft.Text("—", size=scaled(18, width), color=MUTED)
+
+
 def _history_hint_row(forecast: MatchForecast, width: int) -> list[ft.Control]:
     """'Historically such an outcome came true in N%' — hidden when data is too thin."""
     hint = forecast.history_hint
@@ -129,58 +153,12 @@ def _history_hint_row(forecast: MatchForecast, width: int) -> list[ft.Control]:
     ]
 
 
-def match_detail_view(
-    forecast: MatchForecast | None,
-    *,
-    loading: bool,
-    error: str | None,
-    on_back: Callable[[], None],
-    window_width: int = 1440,
-    embedded: bool = False,
-    show_disclaimer: bool = True,
-    show_ai_block: bool = True,
-    ai_state: str | None = None,
-    ai_error: str | None = None,
-) -> ft.Control:
-    header: list[ft.Control] = []
-    if not embedded:
-        header.append(
-            with_cursor(
-                ft.IconButton(
-                    icon=ft.Icons.ARROW_BACK,
-                    tooltip="К календарю",
-                    on_click=lambda _e: on_back(),
-                ),
-                interactive=True,
-            )
-        )
-    header.append(ft.Text("Прогноз матча", size=scaled(13, window_width), color=MUTED))
-    body: list[ft.Control] = [ft.Row(header)]
-    if show_disclaimer:
-        body.append(disclaimer())
-    if error:
-        body.append(error_banner(error))
-    if loading:
-        body.append(
-            ft.Container(
-                content=ft.ProgressRing(color="#22C55E"),
-                alignment=ft.Alignment.CENTER,
-                padding=24,
-            )
-        )
-        return scroll_pane(body)
-    if forecast is None:
-        body.append(
-            info_banner(
-                "Матч не выбран.",
-                action_hint="Откройте календарь и нажмите «Прогноз».",
-            )
-        )
-        return scroll_pane(body)
+TWO_COLUMNS_WIDTH = 1500
 
+
+def _main_blocks(forecast: MatchForecast, layout_width: int) -> list[ft.Control]:
     match = forecast.match
     feats = forecast.features
-    layout_width = max(window_width // 2, 360) if embedded else window_width
     runs = fact_runs(layout_width)
     columns = fact_columns(layout_width)
     tile_h = max(120, scaled(128, layout_width)) if columns > 1 else None
@@ -223,6 +201,119 @@ def match_detail_view(
             padding=12,
         )
     )
+    return [
+        *_optional(result_banner(forecast, window_width=layout_width)),
+        probability_bar(
+            forecast.probabilities,
+            compact=runs == 1,
+            window_width=layout_width,
+        ),
+        *_history_hint_row(forecast, layout_width),
+        preliminary_score_card(
+            forecast.scoreline,
+            match,
+            compact=runs == 1,
+            window_width=layout_width,
+            home_roster=forecast.home_roster,
+        ),
+        context,
+    ]
+
+
+def _side_blocks(
+    forecast: MatchForecast,
+    layout_width: int,
+    *,
+    show_ai_block: bool,
+    ai_state: str | None,
+    ai_error: str | None,
+) -> list[ft.Control]:
+    feats = forecast.features
+    runs = fact_runs(layout_width)
+    blocks: list[ft.Control] = [
+        squad_card(
+            forecast.home_roster,
+            forecast.away_roster,
+            compact=runs == 1,
+            window_width=layout_width,
+            home_elo=feats.home_elo,
+            away_elo=feats.away_elo,
+            lineup=forecast.lineup,
+        )
+    ]
+    if forecast.player_status is not None:
+        blocks.append(player_status_card(forecast.player_status, window_width=layout_width))
+    if forecast.news is not None:
+        blocks.append(news_card(forecast.news, window_width=layout_width))
+    if show_ai_block:
+        blocks.append(
+            ai_block(
+                forecast,
+                ai_state=ai_state,
+                ai_error=ai_error,
+                window_width=layout_width,
+            )
+        )
+    elif forecast.sources:
+        blocks.append(sources_line(forecast.sources, window_width=layout_width))
+    return blocks
+
+
+def match_detail_view(
+    forecast: MatchForecast | None,
+    *,
+    loading: bool,
+    error: str | None,
+    on_back: Callable[[], None],
+    window_width: int = 1440,
+    embedded: bool = False,
+    show_disclaimer: bool = True,
+    show_ai_block: bool = True,
+    ai_state: str | None = None,
+    ai_error: str | None = None,
+    pane_width: int | None = None,
+) -> ft.Control:
+    header: list[ft.Control] = []
+    if not embedded:
+        header.append(
+            with_cursor(
+                ft.IconButton(
+                    icon=ft.Icons.ARROW_BACK,
+                    tooltip="К календарю",
+                    on_click=lambda _e: on_back(),
+                ),
+                interactive=True,
+            )
+        )
+    header.append(ft.Text("Прогноз матча", size=scaled(13, window_width), color=MUTED))
+    body: list[ft.Control] = [ft.Row(header)]
+    if show_disclaimer:
+        body.append(disclaimer())
+    if error:
+        body.append(error_banner(error))
+    if loading:
+        body.append(
+            ft.Container(
+                content=ft.ProgressRing(color="#22C55E"),
+                alignment=ft.Alignment.CENTER,
+                padding=24,
+            )
+        )
+        return scroll_pane(body)
+    if forecast is None:
+        body.append(
+            info_banner(
+                "Матч не выбран.",
+                action_hint="Откройте календарь и нажмите «Прогноз».",
+            )
+        )
+        return scroll_pane(body)
+
+    match = forecast.match
+    if pane_width is not None:
+        layout_width = max(pane_width, 360)
+    else:
+        layout_width = max(window_width // 2, 360) if embedded else window_width
     body.extend(
         [
             ft.Row(
@@ -234,7 +325,7 @@ def match_detail_view(
                         "home",
                         window_width=layout_width,
                     ),
-                    ft.Text("—", size=scaled(18, layout_width), color=MUTED),
+                    _centre_score(match, layout_width),
                     _team_chip(
                         match.away_crest,
                         match.away_name,
@@ -253,44 +344,41 @@ def match_detail_view(
                 size=scaled(12, layout_width),
                 color=MUTED,
             ),
-            probability_bar(
-                forecast.probabilities,
-                compact=runs == 1,
-                window_width=layout_width,
-            ),
-            *_history_hint_row(forecast, layout_width),
-            preliminary_score_card(
-                forecast.scoreline,
-                match,
-                compact=runs == 1,
-                window_width=layout_width,
-                home_roster=forecast.home_roster,
-            ),
-            context,
-            squad_card(
-                forecast.home_roster,
-                forecast.away_roster,
-                compact=runs == 1,
-                window_width=layout_width,
-                home_elo=feats.home_elo,
-                away_elo=feats.away_elo,
-                lineup=forecast.lineup,
-            ),
         ]
     )
-    if forecast.player_status is not None:
-        body.append(player_status_card(forecast.player_status, window_width=layout_width))
-    if forecast.news is not None:
-        body.append(news_card(forecast.news, window_width=layout_width))
-    if show_ai_block:
+    if layout_width >= TWO_COLUMNS_WIDTH:
+        # Wide panes: numbers on the left, clubs/news/AI on the right — no empty half.
+        half = layout_width // 2 - 8
         body.append(
-            ai_block(
-                forecast,
-                ai_state=ai_state,
-                ai_error=ai_error,
-                window_width=layout_width,
+            ft.Row(
+                [
+                    ft.Column(_main_blocks(forecast, half), spacing=12, tight=True, expand=1),
+                    ft.Column(
+                        _side_blocks(
+                            forecast,
+                            half,
+                            show_ai_block=show_ai_block,
+                            ai_state=ai_state,
+                            ai_error=ai_error,
+                        ),
+                        spacing=12,
+                        tight=True,
+                        expand=1,
+                    ),
+                ],
+                spacing=16,
+                vertical_alignment=ft.CrossAxisAlignment.START,
             )
         )
-    elif forecast.sources:
-        body.append(sources_line(forecast.sources, window_width=layout_width))
+        return scroll_pane(body)
+    body.extend(_main_blocks(forecast, layout_width))
+    body.extend(
+        _side_blocks(
+            forecast,
+            layout_width,
+            show_ai_block=show_ai_block,
+            ai_state=ai_state,
+            ai_error=ai_error,
+        )
+    )
     return scroll_pane(body)
