@@ -156,11 +156,28 @@ class MatchService:
             self._calibration = (stamp, calibration(self._history.records(), version))
         return self._calibration[1]
 
-    def export_history(self, directory: Path) -> tuple[Path, Path, int]:
-        """Write forecast_history + calibration summary as CSV (VKR §3.3)."""
-        stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-        records_path = directory / f"forecast_history_{stamp}.csv"
-        summary_path = directory / f"forecast_calibration_{stamp}.csv"
+    def export_history(
+        self,
+        directory: Path | None = None,
+        *,
+        records_path: Path | None = None,
+    ) -> tuple[Path, Path, int]:
+        """Write forecast_history + calibration summary as CSV.
+
+        `records_path` is the file the user picked in the save dialog; the calibration
+        summary goes next to it. Without it both files get a timestamped name in
+        `directory` (the app's data/exports folder).
+        """
+        if records_path is None:
+            if directory is None:
+                raise ValueError("directory or records_path is required")
+            stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+            records_path = directory / f"forecast_history_{stamp}.csv"
+            summary_path = directory / f"forecast_calibration_{stamp}.csv"
+        else:
+            if records_path.suffix.lower() != ".csv":
+                records_path = records_path.with_name(records_path.name + ".csv")
+            summary_path = records_path.with_name(f"{records_path.stem}_calibration.csv")
         rows = export_csv(self._store.list_forecast_records(), records_path)
         export_calibration_csv(self.calibration_report(), summary_path)
         return records_path, summary_path, rows

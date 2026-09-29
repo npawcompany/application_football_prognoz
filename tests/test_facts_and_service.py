@@ -354,3 +354,47 @@ def test_export_history_writes_two_csv_files(tmp_path: Path, matches_payload: di
     assert rows == 5
     assert records_path.exists() and summary_path.exists()
     assert records_path.read_text(encoding="utf-8").startswith("match_id,model_version")
+
+
+def test_export_history_to_a_file_picked_in_the_dialog(
+    tmp_path: Path, matches_payload: dict
+) -> None:
+    store = _store(tmp_path, matches_payload)
+    _seed_history(store, 3, 1)
+    service = MatchService(
+        client=object(),  # type: ignore[arg-type]
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(None, "m"),
+    )
+    target = tmp_path / "chosen" / "my_forecasts"
+    records_path, summary_path, rows = service.export_history(records_path=target)
+    assert rows == 3
+    assert records_path == tmp_path / "chosen" / "my_forecasts.csv"
+    assert summary_path == tmp_path / "chosen" / "my_forecasts_calibration.csv"
+    assert records_path.exists() and summary_path.exists()
+
+
+def test_export_script_and_train_script_paths(tmp_path: Path, monkeypatch) -> None:
+    import importlib.util
+
+    import pytest
+
+    from football_prognoz.config import ROOT_DIR
+
+    def load(name: str):
+        spec = importlib.util.spec_from_file_location(name, ROOT_DIR / "scripts" / f"{name}.py")
+        module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+        return module
+
+    db = tmp_path / "prod.db"
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    export = load("export_forecast_history")
+    export.main(["--out-dir", str(tmp_path / "out")])
+    assert (tmp_path / "out" / "forecast_history.csv").is_file()
+
+    train = load("train")
+    with pytest.raises(SystemExit):
+        train.main(["--db", str(db)])  # never into the app cache
