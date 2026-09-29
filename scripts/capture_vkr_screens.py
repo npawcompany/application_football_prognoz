@@ -39,7 +39,7 @@ def seed_sample_db(db_path: Path) -> None:
     from football_prognoz.data.football_data_org import match_from_api
     from football_prognoz.data.store import SQLiteStore
     from football_prognoz.domain.team import Competition, StandingRow
-    from football_prognoz.services.matches import current_season_year
+    from football_prognoz.services.matches import matches_cache_key
 
     if db_path.exists():
         db_path.unlink()
@@ -63,8 +63,7 @@ def seed_sample_db(db_path: Path) -> None:
     code = str((matches_payload.get("competition") or {}).get("code") or "PL")
     matches = [match_from_api(raw, code) for raw in matches_payload.get("matches") or []]
     store.upsert_matches(matches)
-    season = current_season_year()
-    store.mark_fetched(f"matches:{code}:{season}")
+    store.mark_fetched(matches_cache_key(code))
 
     standings_payload = json.loads((SAMPLES / "standings.json").read_text(encoding="utf-8"))
     rows: list[StandingRow] = []
@@ -127,6 +126,7 @@ def main() -> None:
     seed_sample_db(TMP_DB)
 
     import flet as ft
+
     from football_prognoz.config import load_settings
     from football_prognoz.ui.app import build_service, start_ui
 
@@ -162,7 +162,9 @@ def main() -> None:
                 timeout=45.0,
             )
             if not ok:
-                raise RuntimeError(f"fixtures load failed: matches={len(app.matches)} err={app.error}")
+                raise RuntimeError(
+                    f"fixtures load failed: matches={len(app.matches)} err={app.error}"
+                )
             app._goto("fixtures")
             await asyncio.sleep(0.8)
             await snap(page, OUT_DIR / "fixtures.png")
