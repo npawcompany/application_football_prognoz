@@ -127,3 +127,51 @@ class MatchForecast:
     history_hint: HistoricalHint | None = None
     explanation_error: str | None = None
     sources: tuple[str, ...] = field(default_factory=tuple)
+
+
+OUTCOME_SHORT_RU = {"1": "П1", "X": "Х", "2": "П2"}
+
+
+@dataclass(frozen=True)
+class ResultCheck:
+    """How the forecast compares with the final score of a played match."""
+
+    final: str  # "2:1"
+    actual: str  # "1" / "X" / "2"
+    predicted: str  # favourite outcome of the 1X2 probabilities
+    predicted_probability: float
+    outcome_hit: bool
+    predicted_score: str  # most likely exact score, "1:1"
+    score_hit: bool
+
+    @property
+    def summary(self) -> str:
+        outcome = "угадан" if self.outcome_hit else "не угадан"
+        score = "угадан" if self.score_hit else "не угадан"
+        return (
+            f"Исход {OUTCOME_SHORT_RU[self.predicted]} "
+            f"({round(self.predicted_probability * 100)}%) — {outcome}; "
+            f"счёт {self.predicted_score} — {score}."
+        )
+
+
+def check_against_result(forecast: MatchForecast) -> ResultCheck | None:
+    """None until the match is played. Probabilities are only read, never changed."""
+    match = forecast.match
+    actual = match.result_side
+    final = match.score_label
+    if actual is None or final is None:
+        return None
+    probs = forecast.probabilities.normalized()
+    predicted = probs.favorite_label
+    chance = {"1": probs.home, "X": probs.draw, "2": probs.away}[predicted]
+    line = forecast.scoreline
+    return ResultCheck(
+        final=final,
+        actual=actual,
+        predicted=predicted,
+        predicted_probability=chance,
+        outcome_hit=predicted == actual,
+        predicted_score=line.label,
+        score_hit=(line.home_goals, line.away_goals) == (match.score.home, match.score.away),
+    )
