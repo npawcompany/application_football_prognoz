@@ -52,12 +52,14 @@
 - Отдельного поля «город» в v4 нет.
 - Стартовый состав: `GET /v4/matches/{id}` → `homeTeam.lineup` / `bench` / `coach` (пример Match в той же доке). На SCHEDULED часто пусто. Один запрос на матч, TTL 6 ч. Нет поля player Elo.
 
-### Флаги стран (бандл, не API)
+### Флаги стран (API `area.flag` + бандл)
 
-- Набор: [flag-icons](https://github.com/lipis/flag-icons) v7.5.0, MIT, файлы `flags/4x3/*.svg`.
-- Скрипт: `python scripts/sync_flags.py` → `src/assets/flags/{code}.svg`.
-- Коды: ISO 3166-1 alpha-2; сборные UK — `gb-eng`, `gb-sct`, `gb-wls`, `gb-nir`.
-- UI читает только бандл. Живой HTTP флагов из приложения запрещён.
+- Источник 1: `area.flag` из `GET /v4/competitions` — SVG на том же CDN, что гербы (`https://crests.football-data.org/770.svg` — Англия, `EUR.svg` — Европа). URL лежит в SQLite (`competitions.area_flag`), картинку кэширует Flutter (в памяти, на сессию). Отдельных запросов к API нет, лимит 10/мин не тратится.
+- Источник 2 (fallback): бандл [flag-icons](https://github.com/lipis/flag-icons) v7.5.0, MIT, файлы `flags/4x3/*.svg`. Показывается, если URL нет, CDN не ответил или приложение офлайн (`Image.error_content`).
+- Скрипт бандла: `python scripts/sync_flags.py` → `src/assets/flags/{code}.svg`.
+- Коды: ISO 3166-1 alpha-2; сборные UK — `gb-eng`, `gb-sct`, `gb-wls`, `gb-nir`; Европа — `eu`.
+- Без флага в API: World (`area.code` `INT`, `flag: null`) и континенты → значок глобуса; неизвестное имя → контур флага. Логика: `domain.country.resolve_flag`.
+- Флаги игроков/клубов (`nationality`, `area.name` у команды) — только бандл.
 
 ### CDN гербов (официальный, тот же хост, что в `crest` / `emblem`)
 
@@ -83,6 +85,7 @@
 - URL: https://www.football-data.org/documentation/api
 - Версия: v4
 - В код: `X-Auth-Token`, matches + standings + teams + `GET /teams/{id}` (coach/squad), TTL-кэш, 10 req/min, CDN crests
+- 2026-09-29: `area.flag` соревнований показываем в UI (CDN crests), бандл — запасной вариант
 - 2026-09-29: `GET /v4/matches?dateFrom&dateTo` для календаря по дням; поля `type`, `area`, `currentSeason` у соревнований; все группы в standings; без `season` в календаре лиги
 - Лимиты: 10/мин на free
 - В доке нет: xG, injuries, гарантии lineup на SCHEDULED; часть эмблем (BSA) может отдавать CDN 404 и на `{code}.png`, и на `{id}.png`
