@@ -4,6 +4,11 @@ from collections.abc import Callable
 
 import flet as ft
 
+from football_prognoz.config import (
+    DEFAULT_OLLAMA_FALLBACK_MODEL,
+    DEFAULT_OLLAMA_MODEL,
+    OLLAMA_CLOUD_HOST,
+)
 from football_prognoz.ui.components.settings_panel import (
     SettingsForm,
     settings_aside,
@@ -207,25 +212,41 @@ def settings_view(
         password=True,
         can_reveal_password=True,
     )
-    openai_wrap = _settings_field(
-        label="OPENAI_API_KEY · необязательный",
-        value=form.openai_api_key,
+    ollama_key_wrap = _settings_field(
+        label="OLLAMA_API_KEY · необязательный (для ollama.com)",
+        value=form.ollama_api_key,
         disabled=saving,
         window_width=window_width,
         password=True,
         can_reveal_password=True,
     )
+    host_wrap = _settings_field(
+        label="OLLAMA_HOST",
+        value=form.ollama_host,
+        disabled=saving,
+        window_width=window_width,
+        hint_text=f"{OLLAMA_CLOUD_HOST} или http://127.0.0.1:11434",
+    )
     model_wrap = _settings_field(
-        label="OPENAI_MODEL",
-        value=form.openai_model,
+        label="OLLAMA_MODEL",
+        value=form.ollama_model,
+        disabled=saving,
+        window_width=window_width,
+        hint_text=f"{DEFAULT_OLLAMA_MODEL}, {DEFAULT_OLLAMA_FALLBACK_MODEL}, gemma4:31b…",
+    )
+    fallback_wrap = _settings_field(
+        label="OLLAMA_FALLBACK_MODEL · запасная модель",
+        value=form.ollama_fallback_model,
         disabled=saving,
         window_width=window_width,
     )
-    base_wrap = _settings_field(
-        label="OPENAI_BASE_URL",
-        value=form.openai_base_url,
+    api_football_wrap = _settings_field(
+        label="API_FOOTBALL_KEY · необязательный (травмы, карточки, составы)",
+        value=form.api_football_key,
         disabled=saving,
         window_width=window_width,
+        password=True,
+        can_reveal_password=True,
     )
     leagues_wrap = _settings_field(
         label="Любимые лиги",
@@ -238,9 +259,11 @@ def settings_view(
         form, window_width=window_width, disabled=saving
     )
     football_field = _field_value(football_wrap)
-    openai_field = _field_value(openai_wrap)
+    ollama_key_field = _field_value(ollama_key_wrap)
+    host_field = _field_value(host_wrap)
     model_field = _field_value(model_wrap)
-    base_field = _field_value(base_wrap)
+    fallback_field = _field_value(fallback_wrap)
+    api_football_field = _field_value(api_football_wrap)
     leagues_field = _field_value(leagues_wrap)
     prefetch_sw, ai_sw, compact_sw, system_sw = settings_switches(
         form.prefetch_wait_on_start,
@@ -254,9 +277,11 @@ def settings_view(
         on_save(
             {
                 "football_data_api_key": football_field.value or "",
-                "openai_api_key": openai_field.value or "",
-                "openai_model": model_field.value or "gpt-4o-mini",
-                "openai_base_url": base_field.value or "https://api.openai.com/v1",
+                "ollama_api_key": ollama_key_field.value or "",
+                "ollama_host": host_field.value or OLLAMA_CLOUD_HOST,
+                "ollama_model": model_field.value or DEFAULT_OLLAMA_MODEL,
+                "ollama_fallback_model": fallback_field.value or DEFAULT_OLLAMA_FALLBACK_MODEL,
+                "api_football_key": api_football_field.value or "",
                 "favorite_leagues": leagues_field.value or "",
                 "favorite_teams": teams_value(),
                 "prefetch_wait_on_start": bool(prefetch_sw.value),
@@ -269,9 +294,11 @@ def settings_view(
     form_body = ft.Column(
         [
             football_wrap,
-            openai_wrap,
+            ollama_key_wrap,
+            host_wrap,
             model_wrap,
-            base_wrap,
+            fallback_wrap,
+            api_football_wrap,
             leagues_wrap,
             teams_wrap,
             _switch_row(prefetch_sw, window_width=window_width),

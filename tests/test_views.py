@@ -235,7 +235,7 @@ def test_match_detail_hides_ai_block_when_disabled() -> None:
         show_ai_block=False,
     )
     blob = _blob(hidden)
-    assert "AI-пояснение" not in blob
+    assert "AI-разбор" not in blob
     assert "AI не настроен" not in blob
     assert "Контекст матча" in blob
     assert "Исход матча" in blob
@@ -250,8 +250,8 @@ def test_match_detail_keeps_ai_copy_when_enabled() -> None:
         show_ai_block=True,
     )
     blob = _blob(shown)
-    assert "AI-пояснение" in blob
-    assert "AI не настроен. Добавьте OPENAI_API_KEY в Настройках" in blob
+    assert "AI-разбор факторов" in blob
+    assert "AI не настроен. Добавьте OLLAMA_API_KEY в Настройках" in blob
 
 
 def test_settings_view_builds_from_settings_form() -> None:
@@ -268,3 +268,93 @@ def test_settings_view_builds_from_settings_form() -> None:
     assert "Любимые лиги" in blob
     assert "Любимые команды" in blob
     assert "Очистить кэш" in blob
+
+
+def _detail(forecast: MatchForecast, **kwargs: object) -> str:
+    return _blob(
+        match_detail_view(forecast, loading=False, error=None, on_back=lambda: None, **kwargs)
+    )
+
+
+def test_match_detail_ai_loading_state_has_no_not_configured_banner() -> None:
+    blob = _detail(_forecast(), ai_state="loading")
+    assert "Готовим AI-разбор" in blob
+    assert "AI не настроен" not in blob
+
+
+def test_match_detail_ai_error_state_shows_message() -> None:
+    from dataclasses import replace
+
+    forecast = replace(_forecast(), explanation_error="Ollama отклонил запрос (401).")
+    blob = _detail(forecast, ai_state="error")
+    assert "Не удалось получить AI-разбор" in blob
+    assert "401" in blob
+    assert "AI не настроен" not in blob
+
+
+def test_match_detail_renders_structured_analysis_and_sources() -> None:
+    from dataclasses import replace
+
+    from football_prognoz.domain.prediction import Explanation, Factor
+
+    explanation = Explanation(
+        text="Хозяева чуть сильнее.",
+        model="deepseek-v4.1-flash",
+        home_factors=(Factor("Форма WWDLW", "Поддерживает хозяев", "up"),),
+        away_factors=(Factor("Elo ниже", "Минус для гостей", "down"),),
+        verdict="Небольшой перевес хозяев.",
+        confidence="medium",
+        confidence_reason="Вероятности близки.",
+    )
+    forecast = replace(
+        _forecast(), explanation=explanation, sources=("football-data.org", "API-Football")
+    )
+    blob = _detail(forecast, ai_state="ready")
+    assert "Форма WWDLW" in blob
+    assert "Небольшой перевес хозяев." in blob
+    assert "Уверенность: средняя" in blob
+    assert "Расчёт модели: 1 — 41%" in blob
+    assert "Источники: football-data.org; API-Football" in blob
+    assert "deepseek-v4.1-flash" in blob
+
+
+def test_match_detail_player_status_card() -> None:
+    from dataclasses import replace
+
+    from football_prognoz.domain.player_status import (
+        Absence,
+        CardEvent,
+        PlayerStatusReport,
+        TeamStatus,
+    )
+
+    report = PlayerStatusReport(
+        home=TeamStatus(
+            "Arsenal",
+            42,
+            absences=(Absence(1, "B. Saka", "Missing Fixture", "Hamstring", "2026-10-10", True),),
+            red_cards=(CardEvent(9, "2026-09-19", 81, 2, "W. Saliba", "Red Card"),),
+        ),
+        away=TeamStatus("Man City", 50),
+        notes=("Тестовая заметка",),
+    )
+    blob = _detail(replace(_forecast(), player_status=report))
+    assert "Состав и доступность" in blob
+    assert "B. Saka (Hamstring, не сыграет, ключевой, до 2026-10-10)" in blob
+    assert "W. Saliba" in blob
+    assert "Тестовая заметка" in blob
+
+
+def test_match_detail_without_player_status_has_no_card() -> None:
+    assert "Состав и доступность" not in _detail(_forecast())
+
+
+def test_settings_view_has_ollama_and_api_football_fields() -> None:
+    form = SettingsForm.from_settings(Settings(football_data_api_key="k"))
+    view = settings_view(
+        form, on_save=lambda _p: None, on_test=lambda: None, on_clear_cache=lambda: None
+    )
+    blob = _blob(view)
+    for label in ("OLLAMA_API_KEY", "OLLAMA_HOST", "OLLAMA_MODEL", "API_FOOTBALL_KEY"):
+        assert label in blob
+    assert "OPENAI" not in blob

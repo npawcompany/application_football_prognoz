@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 
 import flet as ft
 
-from football_prognoz.config import Settings
+from football_prognoz.config import (
+    DEFAULT_OLLAMA_FALLBACK_MODEL,
+    DEFAULT_OLLAMA_MODEL,
+    OLLAMA_CLOUD_HOST,
+    Settings,
+)
 from football_prognoz.domain.team import Team
 from football_prognoz.ui.theme import ACCENT, BREAKPOINT_MEDIUM, CARD, FG, MUTED, glass_border
 
@@ -16,9 +21,11 @@ class SettingsForm:
     """Immutable snapshot of the Settings screen: config fields plus UI status."""
 
     football_data_api_key: str = ""
-    openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
-    openai_base_url: str = "https://api.openai.com/v1"
+    ollama_api_key: str = ""
+    ollama_host: str = OLLAMA_CLOUD_HOST
+    ollama_model: str = DEFAULT_OLLAMA_MODEL
+    ollama_fallback_model: str = DEFAULT_OLLAMA_FALLBACK_MODEL
+    api_football_key: str = ""
     database_path: str = "data/cache/prognoz.db"
     favorite_leagues: str = ""
     favorite_teams: str = ""
@@ -43,9 +50,11 @@ class SettingsForm:
     ) -> SettingsForm:
         return cls(
             football_data_api_key=settings.football_data_api_key,
-            openai_api_key=settings.openai_api_key,
-            openai_model=settings.openai_model,
-            openai_base_url=settings.openai_base_url,
+            ollama_api_key=settings.ollama_api_key,
+            ollama_host=settings.ollama_host,
+            ollama_model=settings.ollama_model,
+            ollama_fallback_model=settings.ollama_fallback_model,
+            api_football_key=settings.api_football_key,
             database_path=settings.database_path,
             favorite_leagues=settings.favorite_leagues,
             favorite_teams=settings.favorite_teams,
@@ -87,10 +96,24 @@ def settings_aside(database_path: str, *, window_width: int = 1440) -> ft.Contro
                     max_lines=2,
                 ),
                 ft.Text(
-                    "OpenAI опционален для пояснения, не для выбора исхода",
+                    "Ollama (облако или локальный сервер) опционален: только поясняет "
+                    "расчёт, исход не выбирает",
                     size=12,
                     color=MUTED,
                     max_lines=3,
+                ),
+                ft.Text(
+                    "API-Football опционален: травмы, карточки, составы. "
+                    "Без ключа запросов нет. Free: 100 запросов/сутки",
+                    size=12,
+                    color=MUTED,
+                    max_lines=3,
+                ),
+                ft.Text(
+                    "Настройки применяются сразу после сохранения, без перезапуска.",
+                    size=12,
+                    color=MUTED,
+                    max_lines=2,
                 ),
                 ft.Text(
                     "Системные уведомления: macOS запросит разрешение при первой отправке.",

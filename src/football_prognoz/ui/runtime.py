@@ -222,7 +222,6 @@ def error_banner(text: str) -> ft.Control:
         bgcolor=AWAY,
         padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         border_radius=10,
-        semantics_label=text,
     )
 
 

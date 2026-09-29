@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -152,9 +153,24 @@ class FakeMatchService:
         self.forecast_explain.append(explain)
         return _forecast_for(match)
 
+    llm_enabled = False
+    player_status_enabled = False
+    closed = False
+    enrich_result: MatchForecast | None = None
+    enrich_error: Exception | None = None
+
     def explain_forecast(self, forecast: MatchForecast) -> MatchForecast:
         self.explain_calls += 1
         return forecast
+
+    def enrich(self, forecast: MatchForecast, *, explain: bool = True) -> MatchForecast:
+        self.explain_calls += 1
+        if self.enrich_error is not None:
+            raise self.enrich_error
+        return self.enrich_result or forecast
+
+    def close(self) -> None:
+        self.closed = True
 
     def clear_cache(self) -> None:
         self.clear_calls += 1
@@ -286,9 +302,11 @@ def test_save_settings_accepts_dict(monkeypatch) -> None:
     app._save_settings(
         {
             "football_data_api_key": "abc",
-            "openai_api_key": "",
-            "openai_model": "gpt-4o-mini",
-            "openai_base_url": "https://api.openai.com/v1",
+            "ollama_api_key": "ol-key",
+            "ollama_host": "https://ollama.com",
+            "ollama_model": "deepseek-v4.1-flash",
+            "ollama_fallback_model": "gpt-oss:120b",
+            "api_football_key": "",
             "favorite_leagues": "PL,PD",
             "favorite_teams": "57,64",
             "prefetch_wait_on_start": False,
@@ -299,16 +317,19 @@ def test_save_settings_accepts_dict(monkeypatch) -> None:
     )
     _drain_last(page)
     assert written["FOOTBALL_DATA_API_KEY"] == "abc"
-    assert written["OPENAI_API_KEY"] == ""
-    assert written["OPENAI_MODEL"] == "gpt-4o-mini"
-    assert written["OPENAI_BASE_URL"] == "https://api.openai.com/v1"
+    assert written["OLLAMA_API_KEY"] == "ol-key"
+    assert written["OLLAMA_HOST"] == "https://ollama.com"
+    assert written["OLLAMA_MODEL"] == "deepseek-v4.1-flash"
+    assert written["OLLAMA_FALLBACK_MODEL"] == "gpt-oss:120b"
+    assert written["API_FOOTBALL_KEY"] == ""
+    assert not any(key.startswith("OPENAI") for key in written)
     assert written["FAVORITE_LEAGUES"] == "PL,PD"
     assert written["FAVORITE_TEAMS"] == "57,64"
     assert written["PREFETCH_WAIT_ON_START"] == "false"
     assert written["SHOW_AI_BLOCK"] == "true"
     assert written["COMPACT_FIXTURES"] == "true"
     assert written["SYSTEM_NOTIFICATIONS"] == "true"
-    assert app.status == "Настройки сохранены."
+    assert app.status == "Настройки сохранены и применены."
     assert app.settings is new_settings
 
 
@@ -443,3 +464,91 @@ def _walk(control: object):
     if controls:
         for child in controls:
             yield from _walk(child)
+
+
+def _open_and_forecast(app, page, match=None):
+    app.booting = False
+    app.league = Competition(id=2021, code="PL", name="Premier League")
+    app._open_match(match or _match())
+    _drain_last(page)
+
+
+def test_ai_loading_then_ready_state() -> None:
+    from football_prognoz.domain.prediction import Explanation
+
+    service = FakeMatchService()
+    service.llm_enabled = True
+    app, page, _ = _app(service=service)
+    before = len(page.scheduled)
+    _open_and_forecast(app, page)
+    assert app.ai_state == "loading"
+    assert len(page.scheduled) == before + 2  # forecast + enrichment
+    service.enrich_result = replace(
+        _forecast_for(_match()), explanation=Explanation("Разбор.", "deepseek-v4.1-flash")
+    )
+    _drain_last(page)
+    assert app.ai_state == "ready"
+    assert app.forecast.explanation is not None
+
+
+def test_ai_error_state_when_llm_fails() -> None:
+    service = FakeMatchService()
+    service.llm_enabled = True
+    service.enrich_result = replace(
+        _forecast_for(_match()), explanation_error="Ollama отклонил запрос (401)."
+    )
+    app, page, _ = _app(service=service)
+    _open_and_forecast(app, page)
+    _drain_last(page)
+    assert app.ai_state == "error"
+    assert "401" in (app.ai_error or "")
+
+
+def test_ai_error_state_on_unexpected_exception() -> None:
+    service = FakeMatchService()
+    service.llm_enabled = True
+    service.enrich_error = RuntimeError("boom")
+    app, page, _ = _app(service=service)
+    _open_and_forecast(app, page)
+    _drain_last(page)
+    assert app.ai_state == "error"
+    assert app.ai_error == "boom"
+
+
+def test_no_enrichment_without_llm_or_api_football() -> None:
+    service = FakeMatchService()
+    app, page, _ = _app(service=service)
+    _open_and_forecast(app, page)
+    assert app.ai_state == "not_configured"
+    assert service.explain_calls == 0
+
+
+def test_stale_enrichment_is_ignored() -> None:
+    service = FakeMatchService()
+    service.player_status_enabled = True
+    app, page, _ = _app(service=service)
+    _open_and_forecast(app, page)
+    other = replace(_match(), id=99)
+    app.selected_match_id = other.id
+    app.forecast = _forecast_for(other)
+    _drain_last(page)
+    assert app.forecast.match.id == 99
+
+
+def test_save_settings_closes_old_service_and_boots_when_key_added(monkeypatch) -> None:
+    new_service = FakeMatchService()
+    old_service = FakeMatchService()
+    monkeypatch.setattr("football_prognoz.ui.app.write_env_value", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "football_prognoz.ui.app.load_settings", lambda: _settings(football_data_api_key="new")
+    )
+    monkeypatch.setattr("football_prognoz.ui.app.build_service", lambda _s: new_service)
+    app, page, _ = _app(service=old_service, settings=_settings(football_data_api_key=""))
+    assert app.section == "settings" and app.booting is False
+    app._save_settings({"football_data_api_key": "new"})
+    _drain_last(page)
+    assert old_service.closed is True
+    assert app.service is new_service
+    assert app.booting is True  # boot started without restart
+    _drain_last(page)
+    assert new_service.bootstrap_calls == 1

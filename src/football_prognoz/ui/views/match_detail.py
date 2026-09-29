@@ -5,10 +5,12 @@ from collections.abc import Callable
 import flet as ft
 
 from football_prognoz.domain.prediction import MatchForecast
+from football_prognoz.ui.components.ai_analysis import ai_block, sources_line
 from football_prognoz.ui.components.crest import crest_image
 from football_prognoz.ui.components.fact_card import fact_card
 from football_prognoz.ui.components.form_pills import form_pills
 from football_prognoz.ui.components.h2h_table import h2h_table
+from football_prognoz.ui.components.player_status_card import player_status_card
 from football_prognoz.ui.components.probability_bar import preliminary_score_card, probability_bar
 from football_prognoz.ui.components.squad_card import squad_card
 from football_prognoz.ui.components.standings_duel import standings_duel
@@ -122,6 +124,8 @@ def match_detail_view(
     embedded: bool = False,
     show_disclaimer: bool = True,
     show_ai_block: bool = True,
+    ai_state: str | None = None,
+    ai_error: str | None = None,
 ) -> ft.Control:
     header: list[ft.Control] = []
     if not embedded:
@@ -258,43 +262,17 @@ def match_detail_view(
             ),
         ]
     )
+    if forecast.player_status is not None:
+        body.append(player_status_card(forecast.player_status, window_width=layout_width))
     if show_ai_block:
         body.append(
-            apply_motion(
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Row(
-                                [
-                                    ft.Icon(ft.Icons.MEMORY, size=16, color=MUTED),
-                                    ft.Text(
-                                        "AI-пояснение",
-                                        size=scaled(15, layout_width),
-                                        weight=ft.FontWeight.W_600,
-                                        color=FG,
-                                    ),
-                                ],
-                                spacing=8,
-                            ),
-                            ft.Text(
-                                forecast.explanation.text,
-                                size=scaled(13, layout_width),
-                                color=FG,
-                            )
-                            if forecast.explanation
-                            else info_banner(
-                                "AI не настроен. Добавьте OPENAI_API_KEY в Настройках — "
-                                "числа уже посчитаны локально."
-                            ),
-                        ],
-                        spacing=10,
-                        tight=True,
-                    ),
-                    bgcolor=CARD,
-                    border=glass_border(),
-                    border_radius=12,
-                    padding=12,
-                )
+            ai_block(
+                forecast,
+                ai_state=ai_state,
+                ai_error=ai_error,
+                window_width=layout_width,
             )
         )
+    elif forecast.sources:
+        body.append(sources_line(forecast.sources, window_width=layout_width))
     return scroll_pane(body)

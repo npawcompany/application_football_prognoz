@@ -5,15 +5,18 @@ from datetime import UTC, datetime
 
 import flet as ft
 
-from football_prognoz.ai.explainer import Explainer, OpenAICompatClient
-from football_prognoz.config import Settings, load_settings, write_env_value
-from football_prognoz.data.football_data_org import FootballDataOrgClient
-from football_prognoz.data.store import SQLiteStore
+from football_prognoz.config import (
+    DEFAULT_OLLAMA_FALLBACK_MODEL,
+    DEFAULT_OLLAMA_MODEL,
+    OLLAMA_CLOUD_HOST,
+    Settings,
+    load_settings,
+    write_env_value,
+)
 from football_prognoz.domain.match import Match
 from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.domain.team import Competition, Team
-from football_prognoz.models.predictor import Predictor
-from football_prognoz.services.features import FeatureService
+from football_prognoz.services.factory import build_service
 from football_prognoz.services.filters import (
     FixtureQuery,
     MatchStatusFilter,
@@ -21,6 +24,12 @@ from football_prognoz.services.filters import (
     filter_competitions,
 )
 from football_prognoz.services.matches import MatchService
+from football_prognoz.ui.components.ai_analysis import (
+    AI_ERROR,
+    AI_LOADING,
+    AI_NOT_CONFIGURED,
+    AI_READY,
+)
 from football_prognoz.ui.components.settings_panel import SettingsForm
 from football_prognoz.ui.components.splash import splash_view
 from football_prognoz.ui.motion import PAGE_CURSOR, with_cursor
@@ -58,23 +67,7 @@ def _env_text(value: str | bool | None, default: str = "") -> str:
     return text if text else default
 
 
-def build_service(settings: Settings) -> MatchService:
-    store = SQLiteStore(settings.db_path)
-    client = FootballDataOrgClient(settings.football_data_api_key)
-    llm = None
-    if settings.has_openai_key:
-        llm = OpenAICompatClient(
-            settings.openai_api_key,
-            settings.openai_model,
-            settings.openai_base_url,
-        )
-    return MatchService(
-        client=client,
-        store=store,
-        features=FeatureService(store),
-        predictor=Predictor(),
-        explainer=Explainer(llm, settings.openai_model),
-    )
+__all__ = ["FootballApp", "build_service", "start_ui"]
 
 
 class FootballApp:
@@ -96,6 +89,8 @@ class FootballApp:
         self.league_query = ""
         self.favorites_only = False
         self.fixture_query = FixtureQuery()
+        self.ai_state: str | None = None
+        self.ai_error: str | None = None
         self._splash_message = "Загружаем данные…"
         self._splash_fraction: float | None = None
         self._pane = ft.Container(expand=True, padding=BODY_PADDING, bgcolor=BG)
@@ -493,6 +488,8 @@ class FootballApp:
             window_width=width,
             embedded=embedded,
             show_ai_block=self.settings.show_ai_block,
+            ai_state=self.ai_state,
+            ai_error=self.ai_error,
         )
 
     def _settings_pane(self, width: int) -> ft.Control:
@@ -697,6 +694,8 @@ class FootballApp:
         self.busy = "forecast"
         self.error = None
         self.forecast = None
+        self.ai_state = None
+        self.ai_error = None
         self.selected_match_id = match.id
         width = window_width(self.page)
         if use_split(width):
@@ -721,34 +720,60 @@ class FootballApp:
         self.forecast = forecast
         self.loading = False
         self.busy = None
-        self._render_panes(parts="right" if self._pane_kind == "split" else "all")
         match = forecast.match
         self._notify(
             f"Прогноз готов: {match.home_name} — {match.away_name}",
             kind="success",
         )
-        if not (self.settings.show_ai_block and self.settings.has_openai_key):
-            return
-        current = self.forecast
+        self._start_enrichment(forecast)
 
-        def explain_work() -> MatchForecast:
-            return self.service.explain_forecast(current)
+    def _start_enrichment(self, forecast: MatchForecast) -> None:
+        """Background: API-Football facts (if keyed) + LLM analysis (if configured)."""
+        wants_llm = self.settings.show_ai_block and bool(
+            getattr(self.service, "llm_enabled", False)
+        )
+        wants_status = bool(getattr(self.service, "player_status_enabled", False))
+        self.ai_error = None
+        self.ai_state = AI_LOADING if wants_llm else AI_NOT_CONFIGURED
+        self._render_panes(parts="right" if self._pane_kind == "split" else "all")
+        if not (wants_llm or wants_status):
+            return
+        service = self.service
+
+        def enrich_work() -> MatchForecast:
+            return service.enrich(forecast, explain=wants_llm)
 
         run_background(
             self.page,
-            explain_work,
+            enrich_work,
             self._on_explain,
             self._on_explain_fail,
             message=None,
             cancel_previous=False,
         )
 
+    def _is_current(self, forecast: MatchForecast) -> bool:
+        return self.selected_match_id is None or forecast.match.id == self.selected_match_id
+
     def _on_explain(self, forecast: MatchForecast) -> None:
+        if not self._is_current(forecast):
+            return  # the user already opened another match
         self.forecast = forecast
+        if forecast.explanation is not None:
+            self.ai_state = AI_READY
+        elif forecast.explanation_error:
+            self.ai_state = AI_ERROR
+            self.ai_error = forecast.explanation_error
+            self._notify(f"AI-разбор не получен: {forecast.explanation_error}", kind="error")
+        elif self.ai_state == AI_LOADING:
+            self.ai_state = AI_NOT_CONFIGURED
         self._render_panes(parts="right" if self._pane_kind == "split" else "all")
 
-    def _on_explain_fail(self, _message: str) -> None:
-        self._render_panes()
+    def _on_explain_fail(self, message: str) -> None:
+        self.ai_state = AI_ERROR
+        self.ai_error = message or "неизвестная ошибка"
+        self._render_panes(parts="right" if self._pane_kind == "split" else "all")
+        self._notify(f"AI-разбор не получен: {self.ai_error}", kind="error")
 
     def _on_fail(self, message: str) -> None:
         self.loading = False
@@ -766,47 +791,48 @@ class FootballApp:
         self._render_panes()
 
         def work() -> Settings:
-            write_env_value(
-                "FOOTBALL_DATA_API_KEY",
-                _env_text(payload.get("football_data_api_key")),
+            text_values = (
+                ("FOOTBALL_DATA_API_KEY", "football_data_api_key", ""),
+                ("OLLAMA_API_KEY", "ollama_api_key", ""),
+                ("OLLAMA_HOST", "ollama_host", OLLAMA_CLOUD_HOST),
+                ("OLLAMA_MODEL", "ollama_model", DEFAULT_OLLAMA_MODEL),
+                ("OLLAMA_FALLBACK_MODEL", "ollama_fallback_model", DEFAULT_OLLAMA_FALLBACK_MODEL),
+                ("API_FOOTBALL_KEY", "api_football_key", ""),
+                ("FAVORITE_LEAGUES", "favorite_leagues", ""),
+                ("FAVORITE_TEAMS", "favorite_teams", ""),
             )
-            write_env_value("OPENAI_API_KEY", _env_text(payload.get("openai_api_key")))
-            write_env_value(
-                "OPENAI_MODEL",
-                _env_text(payload.get("openai_model"), "gpt-4o-mini"),
+            for env_key, field, default in text_values:
+                write_env_value(env_key, _env_text(payload.get(field), default))
+            flags = (
+                ("PREFETCH_WAIT_ON_START", "prefetch_wait_on_start", False),
+                ("SHOW_AI_BLOCK", "show_ai_block", True),
+                ("COMPACT_FIXTURES", "compact_fixtures", False),
+                ("SYSTEM_NOTIFICATIONS", "system_notifications", False),
             )
-            write_env_value(
-                "OPENAI_BASE_URL",
-                _env_text(payload.get("openai_base_url"), "https://api.openai.com/v1"),
-            )
-            write_env_value("FAVORITE_LEAGUES", _env_text(payload.get("favorite_leagues")))
-            write_env_value("FAVORITE_TEAMS", _env_text(payload.get("favorite_teams")))
-            write_env_value(
-                "PREFETCH_WAIT_ON_START",
-                _env_flag(payload.get("prefetch_wait_on_start", False)),
-            )
-            write_env_value(
-                "SHOW_AI_BLOCK",
-                _env_flag(payload.get("show_ai_block", True)),
-            )
-            write_env_value(
-                "COMPACT_FIXTURES",
-                _env_flag(payload.get("compact_fixtures", False)),
-            )
-            write_env_value(
-                "SYSTEM_NOTIFICATIONS",
-                _env_flag(payload.get("system_notifications", False)),
-            )
+            for env_key, field, default in flags:
+                write_env_value(env_key, _env_flag(payload.get(field, default)))
             return load_settings()
 
         def ok(settings: Settings) -> None:
+            had_football_key = self.settings.has_football_key
+            old_service = self.service
             self.settings = settings
+            # Rate limiters are process-wide (services.factory), so the rebuild keeps
+            # the football-data.org 10 req/min window; old HTTP clients get closed.
             self.service = build_service(settings)
+            if old_service is not self.service:
+                closer = getattr(old_service, "close", None)
+                if callable(closer):
+                    closer()
             self.loading = False
             self.busy = None
-            self.status = "Настройки сохранены."
+            self.status = "Настройки сохранены и применены."
             self._render_panes()
-            self._notify("Настройки сохранены.", kind="success")
+            self._notify("Настройки сохранены и применены.", kind="success")
+            if settings.has_football_key and not had_football_key and not self.booting:
+                self._start_boot()
+            elif self.forecast is not None and self.forecast.explanation is None:
+                self._start_enrichment(self.forecast)
 
         run_background(
             self.page,
