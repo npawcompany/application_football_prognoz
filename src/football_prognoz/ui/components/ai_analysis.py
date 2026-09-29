@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import flet as ft
 
-from football_prognoz.domain.prediction import Explanation, Factor, MatchForecast
+from football_prognoz.domain.prediction import Explanation, Factor, MarketComment, MatchForecast
+from football_prognoz.services.llm_policy import PLAN_REFRESH, generated_caption
 from football_prognoz.ui.motion import apply_motion
 from football_prognoz.ui.runtime import error_banner, info_banner
-from football_prognoz.ui.theme import ACCENT, AWAY, CARD, FG, MUTED, glass_border, scaled
+from football_prognoz.ui.theme import ACCENT, AWAY, CARD, DRAW, FG, MUTED, glass_border, scaled
 
 AI_LOADING = "loading"
 AI_ERROR = "error"
 AI_READY = "ready"
 AI_NOT_CONFIGURED = "not_configured"
+AI_NOTE = "note"  # finished match, nothing saved: no LLM call
+REFRESH_TEXT = "Обновляем разбор в фоне — пока показан сохранённый."
 
 NOT_CONFIGURED_TEXT = (
     "AI не настроен. Добавьте OLLAMA_API_KEY в Настройках или укажите локальный "
@@ -36,6 +39,8 @@ def resolve_ai_state(
     """The forecast content wins over the app flag; unknown flags mean 'not configured'."""
     if forecast.explanation is not None:
         return AI_READY
+    if forecast.analysis_note:
+        return AI_NOTE
     if forecast.explanation_error or ai_error or ai_state == AI_ERROR:
         return AI_ERROR
     if ai_state == AI_LOADING:
@@ -109,6 +114,30 @@ def _analysis(explanation: Explanation, forecast: MatchForecast, width: int) -> 
                 color=FG,
             )
         )
+    if explanation.top_markets:
+        blocks.append(_top_markets(explanation.top_markets, forecast, width))
+    if explanation.risks:
+        blocks.append(
+            ft.Column(
+                [
+                    ft.Text(
+                        "Риски", size=scaled(12, width), color=MUTED, weight=ft.FontWeight.W_600
+                    ),
+                    *[
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.WARNING_AMBER, size=14, color=DRAW),
+                                ft.Text(risk, size=scaled(12, width), color=FG, expand=True),
+                            ],
+                            spacing=6,
+                        )
+                        for risk in explanation.risks
+                    ],
+                ],
+                spacing=4,
+                tight=True,
+            )
+        )
     blocks.append(
         ft.Text(
             f"Модель: {explanation.model}. AI объясняет расчёт, но не меняет вероятности "
@@ -118,6 +147,82 @@ def _analysis(explanation: Explanation, forecast: MatchForecast, width: int) -> 
         )
     )
     return blocks
+
+
+def _top_markets(
+    items: tuple[MarketComment, ...], forecast: MatchForecast, width: int
+) -> ft.Control:
+    rows: list[ft.Control] = [
+        ft.Text(
+            "Наиболее обоснованные рынки (по фактам, вероятности — из таблицы)",
+            size=scaled(12, width),
+            color=MUTED,
+            weight=ft.FontWeight.W_600,
+        )
+    ]
+    table = forecast.markets
+    for item in items:
+        market = table.by_key(item.market) if table is not None else None
+        if market is None:
+            continue
+        chance = f"{(market.effective or 0) * 100:.0f}%"
+        odds = f" · кэф {market.fair_odds:.2f}" if market.fair_odds else ""
+        rows.append(
+            ft.Row(
+                [
+                    ft.Icon(ft.Icons.STAR, size=14, color=DRAW),
+                    ft.Column(
+                        [
+                            ft.Text(
+                                f"{market.label} — {chance}{odds}",
+                                size=scaled(12, width),
+                                color=FG,
+                                weight=ft.FontWeight.W_600,
+                            ),
+                            ft.Text(item.comment, size=scaled(12, width), color=FG),
+                        ],
+                        spacing=2,
+                        tight=True,
+                        expand=True,
+                    ),
+                ],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            )
+        )
+    return ft.Column(rows, spacing=6, tight=True)
+
+
+def _status_lines(forecast: MatchForecast, ai_state: str | None, width: int) -> list[ft.Control]:
+    """Caption «Сгенерировано …, модель X», fallback notice, refresh progress / error."""
+    explanation = forecast.explanation
+    lines: list[ft.Control] = []
+    if explanation is None:
+        return lines
+    if explanation.notice:
+        lines.append(info_banner(explanation.notice))
+    if forecast.analysis_plan == PLAN_REFRESH and ai_state == AI_LOADING:
+        lines.append(
+            ft.Row(
+                [
+                    ft.ProgressRing(width=12, height=12, stroke_width=2, color=ACCENT),
+                    ft.Text(REFRESH_TEXT, size=scaled(11, width), color=MUTED),
+                ],
+                spacing=8,
+            )
+        )
+    if forecast.analysis_refresh_error:
+        lines.append(
+            ft.Text(
+                f"Обновить не удалось: {forecast.analysis_refresh_error} Показан сохранённый.",
+                size=scaled(11, width),
+                color=DRAW,
+            )
+        )
+    caption = generated_caption(explanation.generated_at, explanation.model)
+    if caption:
+        lines.append(ft.Text(caption, size=scaled(11, width), color=MUTED))
+    return lines
 
 
 def sources_line(sources: tuple[str, ...], *, window_width: int) -> ft.Control:
@@ -153,6 +258,9 @@ def ai_block(
     ]
     if state == AI_READY and forecast.explanation is not None:
         content.extend(_analysis(forecast.explanation, forecast, window_width))
+        content.extend(_status_lines(forecast, ai_state, window_width))
+    elif state == AI_NOTE:
+        content.append(info_banner(forecast.analysis_note))
     elif state == AI_LOADING:
         content.extend(
             [

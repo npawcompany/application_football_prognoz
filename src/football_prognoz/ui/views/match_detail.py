@@ -6,11 +6,12 @@ import flet as ft
 
 from football_prognoz.domain.match import LIVE_STATUSES, Match
 from football_prognoz.domain.prediction import MatchForecast
-from football_prognoz.ui.components.ai_analysis import ai_block, sources_line
+from football_prognoz.ui.components.ai_analysis import AI_LOADING, ai_block, sources_line
 from football_prognoz.ui.components.crest import crest_image
 from football_prognoz.ui.components.fact_card import fact_card
 from football_prognoz.ui.components.form_pills import form_pills
 from football_prognoz.ui.components.h2h_table import h2h_table
+from football_prognoz.ui.components.markets_table import markets_card
 from football_prognoz.ui.components.news_card import news_card
 from football_prognoz.ui.components.player_status_card import player_status_card
 from football_prognoz.ui.components.probability_bar import preliminary_score_card, probability_bar
@@ -216,6 +217,14 @@ def _main_blocks(forecast: MatchForecast, layout_width: int) -> list[ft.Control]
             window_width=layout_width,
             home_roster=forecast.home_roster,
         ),
+        *_optional(
+            markets_card(
+                forecast.markets,
+                match_id=match.id,
+                window_width=layout_width,
+                explanation=forecast.explanation,
+            )
+        ),
         context,
     ]
 
@@ -244,7 +253,17 @@ def _side_blocks(
     if forecast.player_status is not None:
         blocks.append(player_status_card(forecast.player_status, window_width=layout_width))
     if forecast.news is not None:
-        blocks.append(news_card(forecast.news, window_width=layout_width))
+        blocks.append(
+            news_card(
+                forecast.news,
+                window_width=layout_width,
+                summary=forecast.news_summary,
+                note=forecast.news_note,
+                error=forecast.news_summary_error,
+                plan=forecast.news_plan,
+                loading=ai_state == AI_LOADING,
+            )
+        )
     if show_ai_block:
         blocks.append(
             ai_block(

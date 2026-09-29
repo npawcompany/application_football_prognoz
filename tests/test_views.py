@@ -398,7 +398,7 @@ def test_match_detail_news_card() -> None:
     assert "Новости команд" in blob
     assert "24.09 · травма · Saka doubt for City clash (BBC Sport)" in blob
     assert "свежих заголовков нет" in blob
-    assert "не влияют на вероятности 1X2" in blob
+    assert "не влияет на вероятности" in blob
 
 
 def test_training_panel_idle_and_running() -> None:
@@ -496,7 +496,11 @@ def test_settings_favourite_leagues_combobox_greys_idle_leagues_and_groups_teams
         on_clear_cache=lambda: None,
         on_refresh_counts=lambda: None,
     )
-    dropdowns = [node for node in _walk(view) if isinstance(node, ft.Dropdown)]
+    dropdowns = [
+        node
+        for node in _walk(view)
+        if isinstance(node, ft.Dropdown) and not isinstance(node.data, dict)
+    ]
     leagues, teams = dropdowns[0], dropdowns[1]
     by_key = {option.key: option for option in leagues.options}
     assert set(by_key) == {"PL", "BL1", "CL", "EC"}
@@ -524,3 +528,34 @@ def test_settings_view_shows_gate_notice() -> None:
         form, on_save=lambda _p: None, on_test=lambda: None, on_clear_cache=lambda: None
     )
     assert "Чтобы начать, укажите ключ" in _blob(view)
+
+
+def test_settings_ollama_model_dropdown_lists_known_models_and_accepts_typed_name() -> None:
+    from football_prognoz.config import KNOWN_OLLAMA_MODELS
+    from football_prognoz.ui.views.settings import model_choice
+
+    form = SettingsForm.from_settings(Settings(ollama_model="my-custom:7b"))
+    saved: list[dict] = []
+    view = settings_view(
+        form,
+        on_save=saved.append,
+        on_test=lambda: None,
+        on_clear_cache=lambda: None,
+        on_refresh_counts=lambda: None,
+    )
+    models = [
+        node
+        for node in _walk(view)
+        if isinstance(node, ft.Dropdown) and isinstance(node.data, dict)
+    ]
+    assert len(models) == 2
+    main, fallback = models
+    assert [o.key for o in main.options] == [k for k, _n in KNOWN_OLLAMA_MODELS]
+    assert "бесплатный тариф" in main.options[0].text
+    assert model_choice(main) == "my-custom:7b"  # unknown name kept as typed text
+    assert fallback.value == "gpt-oss:20b"
+    main.data["typed"] = "gemma4:31b — может требовать кредиты"
+    assert model_choice(main) == "gemma4:31b"
+    main.data["typed"] = None
+    main.value, main.text = "gpt-oss:20b", None
+    assert model_choice(main) == "gpt-oss:20b"

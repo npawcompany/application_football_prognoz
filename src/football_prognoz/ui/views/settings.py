@@ -7,6 +7,7 @@ import flet as ft
 from football_prognoz.config import (
     DEFAULT_OLLAMA_FALLBACK_MODEL,
     DEFAULT_OLLAMA_MODEL,
+    KNOWN_OLLAMA_MODELS,
     OLLAMA_CLOUD_HOST,
 )
 from football_prognoz.domain.team import Competition, Team
@@ -76,6 +77,66 @@ def _settings_field(
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         data=field,
     )
+
+
+MODEL_LABEL_SEP = " — "
+
+
+def _model_dropdown(
+    *, label: str, value: str, disabled: bool, window_width: int, hint_text: str | None = None
+) -> ft.Control:
+    """Editable dropdown: pick a known Ollama model (with tariff note) or type any name."""
+    known = {key for key, _note in KNOWN_OLLAMA_MODELS}
+    dropdown = ft.Dropdown(
+        options=[
+            ft.DropdownOption(key=key, text=f"{key}{MODEL_LABEL_SEP}{note}")
+            for key, note in KNOWN_OLLAMA_MODELS
+        ],
+        value=value if value in known else None,
+        text=None if value in known else value,
+        editable=True,
+        enable_filter=True,
+        disabled=disabled,
+        hint_text=hint_text,
+        filled=True,
+        fill_color=_FIELD_BG,
+        bgcolor=_FIELD_BG,
+        color=FG,
+        border_color=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
+        focused_border_color=ACCENT,
+        text_size=scaled(14, window_width),
+        border_radius=10,
+        menu_height=360,
+        expand=True,
+        data={"typed": None},
+    )
+
+    def on_text_change(e: ft.ControlEvent) -> None:
+        dropdown.data["typed"] = e.data if isinstance(e.data, str) else dropdown.text
+
+    def on_select(_e: ft.ControlEvent) -> None:
+        dropdown.data["typed"] = None
+
+    dropdown.on_text_change = on_text_change
+    dropdown.on_select = on_select
+    return ft.Column(
+        [ft.Text(label, size=scaled(12, window_width), color=MUTED), dropdown],
+        spacing=6,
+        tight=True,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        data=dropdown,
+    )
+
+
+def model_choice(dropdown: ft.Dropdown) -> str:
+    """Model name from the editable dropdown: a typed name wins over the selected option."""
+    state = dropdown.data if isinstance(dropdown.data, dict) else {}
+    typed = (state.get("typed") or "").strip()
+    if not typed and not dropdown.value:
+        typed = (dropdown.text or "").strip()
+    if typed:
+        return typed.split(MODEL_LABEL_SEP)[0].strip()
+    return (dropdown.value or "").strip()
 
 
 def _field_value(wrapped: ft.Control) -> ft.TextField:
@@ -465,18 +526,19 @@ def settings_view(
         window_width=window_width,
         hint_text=f"{OLLAMA_CLOUD_HOST} или http://127.0.0.1:11434",
     )
-    model_wrap = _settings_field(
-        label="OLLAMA_MODEL",
+    model_wrap = _model_dropdown(
+        label="OLLAMA_MODEL · выберите из списка или впишите своё",
         value=form.ollama_model,
         disabled=saving,
         window_width=window_width,
-        hint_text=f"{DEFAULT_OLLAMA_MODEL}, {DEFAULT_OLLAMA_FALLBACK_MODEL}, gemma4:31b…",
+        hint_text=DEFAULT_OLLAMA_MODEL,
     )
-    fallback_wrap = _settings_field(
+    fallback_wrap = _model_dropdown(
         label="OLLAMA_FALLBACK_MODEL · запасная модель",
         value=form.ollama_fallback_model,
         disabled=saving,
         window_width=window_width,
+        hint_text=DEFAULT_OLLAMA_FALLBACK_MODEL,
     )
     api_football_wrap = _settings_field(
         label="API_FOOTBALL_KEY · необязательный (травмы, карточки, составы)",
@@ -525,8 +587,10 @@ def settings_view(
                 "football_data_api_key": football_field.value or "",
                 "ollama_api_key": ollama_key_field.value or "",
                 "ollama_host": host_field.value or OLLAMA_CLOUD_HOST,
-                "ollama_model": model_field.value or DEFAULT_OLLAMA_MODEL,
-                "ollama_fallback_model": fallback_field.value or DEFAULT_OLLAMA_FALLBACK_MODEL,
+                "ollama_model": model_choice(model_field) or DEFAULT_OLLAMA_MODEL,
+                "ollama_fallback_model": (
+                    model_choice(fallback_field) or DEFAULT_OLLAMA_FALLBACK_MODEL
+                ),
                 "api_football_key": api_football_field.value or "",
                 "gnews_api_key": gnews_field.value or "",
                 "news_rss_enabled": bool(rss_sw.value),
