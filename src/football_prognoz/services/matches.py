@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 
 from football_prognoz.ai.explainer import Explainer
+from football_prognoz.ai.ollama import LLMError
 from football_prognoz.data import FREE_COMPETITIONS
 from football_prognoz.data.football_data_org import FootballDataError, FootballDataOrgClient
 from football_prognoz.data.store import (
@@ -16,7 +18,13 @@ from football_prognoz.domain.match import Match, MatchLineup
 from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.domain.team import Competition, StandingRow, Team, TeamRoster
 from football_prognoz.models.predictor import Predictor
+from football_prognoz.services.facts import SRC_FOOTBALL_DATA, SRC_MODEL, FactsService
 from football_prognoz.services.features import FeatureService
+from football_prognoz.services.player_status import PlayerStatusService
+
+log = logging.getLogger(__name__)
+
+BASE_SOURCES = (SRC_FOOTBALL_DATA, SRC_MODEL)
 
 
 def current_season_year(now: datetime | None = None) -> int:
@@ -32,12 +40,41 @@ class MatchService:
         features: FeatureService,
         predictor: Predictor,
         explainer: Explainer,
+        player_status: PlayerStatusService | None = None,
     ) -> None:
         self._client = client
         self._store = store
         self._features = features
         self._predictor = predictor
         self._explainer = explainer
+        self._player_status = player_status
+        self._facts = FactsService(store)
+
+    @property
+    def llm_enabled(self) -> bool:
+        return self._explainer.enabled
+
+    @property
+    def llm_model(self) -> str:
+        return self._explainer.model_name
+
+    @property
+    def player_status_enabled(self) -> bool:
+        return self._player_status is not None and self._player_status.enabled
+
+    def close(self) -> None:
+        """Close HTTP clients owned by this service (called when settings change)."""
+        for closer in (
+            getattr(self._client, "close", None),
+            self._explainer.close,
+            getattr(self._player_status, "close", None),
+        ):
+            if not callable(closer):
+                continue
+            try:
+                closer()
+            except Exception as exc:  # noqa: BLE001 — closing must not break a settings save
+                log.warning("Closing a client failed: %s", exc)
 
     def ping(self) -> list[Competition]:
         return self._client.ping()
@@ -46,6 +83,7 @@ class MatchService:
         """Drop SQLite rows. The next read uses cache-first fallbacks."""
         self._store.clear_all()
         self._features = FeatureService(self._store)
+        self._facts = FactsService(self._store)
 
     def cached_competitions(self) -> list[Competition]:
         """Return stored competitions or the free-tier list. Never hits HTTP."""
@@ -189,25 +227,66 @@ class MatchService:
         )
         lineup = self._lineup_for(match)
         stored = self._store.get_match(match.id) or match
-        explanation = None
-        if explain:
-            explanation = self._explainer.explain(stored, features, probabilities, scoreline)
-        return MatchForecast(
+        result = MatchForecast(
             match=stored,
             probabilities=probabilities,
             features=features,
-            explanation=explanation,
+            explanation=None,
             scoreline=scoreline,
             home_roster=home_roster,
             away_roster=away_roster,
             lineup=lineup,
+            sources=BASE_SOURCES,
         )
+        if explain:
+            return self.enrich(result, explain=True)
+        return result
+
+    def attach_player_status(self, forecast: MatchForecast) -> MatchForecast:
+        """Add API-Football facts. Zero HTTP calls when API_FOOTBALL_KEY is not set."""
+        if self._player_status is None or not self._player_status.enabled:
+            return forecast
+        report = self._player_status.report_for(forecast.match)
+        if report is None:
+            return forecast
+        sources = tuple(dict.fromkeys(forecast.sources + report.sources))
+        return replace(forecast, player_status=report, sources=sources)
 
     def explain_forecast(self, forecast: MatchForecast) -> MatchForecast:
-        explanation = self._explainer.explain(
+        """Ask the LLM for a structured analysis; LLM failures land in explanation_error."""
+        if not self._explainer.enabled:
+            return replace(forecast, explanation=None, explanation_error=None)
+        facts = self._facts.build(
             forecast.match,
             forecast.features,
             forecast.probabilities,
             forecast.scoreline,
+            forecast.player_status,
         )
-        return replace(forecast, explanation=explanation)
+        try:
+            explanation = self._explainer.explain(
+                forecast.match,
+                forecast.features,
+                forecast.probabilities,
+                forecast.scoreline,
+                facts,
+            )
+        except LLMError as exc:
+            log.warning("LLM explanation failed: %s", exc)
+            return replace(forecast, explanation=None, explanation_error=str(exc))
+        sources = facts.sources
+        if explanation is not None:
+            sources = sources + (f"Ollama: {explanation.model}",)
+        return replace(
+            forecast,
+            explanation=explanation,
+            explanation_error=None,
+            sources=tuple(dict.fromkeys(forecast.sources + sources)),
+        )
+
+    def enrich(self, forecast: MatchForecast, *, explain: bool = True) -> MatchForecast:
+        """Background step after the numbers are shown: player status, then LLM."""
+        enriched = self.attach_player_status(forecast)
+        if explain and self._explainer.enabled:
+            enriched = self.explain_forecast(enriched)
+        return enriched

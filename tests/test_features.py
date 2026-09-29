@@ -178,8 +178,14 @@ class _BoomClient(_FakeClient):
 
 
 class _TrackingExplainer:
+    enabled = True
+    model_name = "test-model"
+
     def __init__(self) -> None:
         self.calls = 0
+
+    def close(self) -> None:
+        pass
 
     def explain(self, *args, **kwargs):
         self.calls += 1
