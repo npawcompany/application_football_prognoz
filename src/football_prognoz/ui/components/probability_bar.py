@@ -351,15 +351,38 @@ def preliminary_score_card(
         wrap=False,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
+    played = match is not None and match.is_played
+    centre: ft.Control = ft.Text(
+        "VS",
+        size=scaled(42, window_width),
+        weight=ft.FontWeight.BOLD,
+        color=ft.Colors.with_opacity(0.16, FG),
+    )
+    if played and match is not None:
+        exact = (score.home_goals, score.away_goals) == (match.score.home, match.score.away)
+        centre = ft.Column(
+            [
+                ft.Text("Итог", size=scaled(12, window_width), color=MUTED),
+                ft.Text(
+                    match.score_label or "",
+                    size=scaled(40, window_width),
+                    weight=ft.FontWeight.BOLD,
+                    color=FG,
+                ),
+                ft.Text(
+                    "счёт угадан" if exact else "счёт не угадан",
+                    size=scaled(11, window_width),
+                    color=ACCENT if exact else AWAY,
+                ),
+            ],
+            spacing=0,
+            tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        )
     watermark = ft.Row(
         [
             _ghost_crest(home_crest, home_id),
-            ft.Text(
-                "VS",
-                size=scaled(42, window_width),
-                weight=ft.FontWeight.BOLD,
-                color=ft.Colors.with_opacity(0.16, FG),
-            ),
+            centre,
             _ghost_crest(away_crest, away_id),
         ],
         alignment=ft.MainAxisAlignment.SPACE_AROUND,

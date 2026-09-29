@@ -4,27 +4,55 @@ from collections.abc import Callable
 
 import flet as ft
 
-from football_prognoz.domain.match import Match
+from football_prognoz.domain.match import LIVE_STATUSES, Match
 from football_prognoz.ui.components.crest import crest_image
 from football_prognoz.ui.components.team_label import team_label
 from football_prognoz.ui.components.venue import venue_badge
 from football_prognoz.ui.formatters import format_kickoff_date, format_kickoff_time
 from football_prognoz.ui.motion import apply_motion
-from football_prognoz.ui.theme import ACCENT, CARD, FG, MUTED, SURFACE, glass_border, scaled
+from football_prognoz.ui.theme import (
+    ACCENT,
+    CARD,
+    DRAW,
+    FG,
+    MUTED,
+    SURFACE,
+    glass_border,
+    scaled,
+)
 
 
-def _status_chip(label: str, *, window_width: int) -> ft.Control:
+def _status_chip(match: Match, *, window_width: int) -> ft.Control:
+    """Russian status; «Завершён 2:1» / «Идёт 1:0» once a score is known."""
+    live = match.status in LIVE_STATUSES
+    played = match.is_played
+    color = ACCENT if played else DRAW if live else MUTED
     return ft.Container(
         content=ft.Text(
-            label,
+            match.status_text,
             size=scaled(11, window_width),
-            color=MUTED,
+            color=color if (played or live) else MUTED,
+            weight=ft.FontWeight.W_600 if (played or live) else None,
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
         ),
-        bgcolor=SURFACE,
+        bgcolor=ft.Colors.with_opacity(0.14, color) if (played or live) else SURFACE,
         padding=ft.Padding.symmetric(horizontal=8, vertical=4),
         border_radius=8,
+    )
+
+
+def _goals(value: int | None, *, won: bool, size: int) -> ft.Control:
+    return ft.Container(
+        content=ft.Text(
+            "–" if value is None else str(value),
+            size=size,
+            weight=ft.FontWeight.BOLD,
+            color=FG if won else MUTED,
+            text_align=ft.TextAlign.CENTER,
+        ),
+        width=size + 14,
+        alignment=ft.Alignment.CENTER_RIGHT,
     )
 
 
@@ -111,9 +139,26 @@ def match_card(
         expand=True,
     )
 
+    if match.has_score and (match.is_played or match.status in LIVE_STATUSES):
+        # The final (or live) score next to each club: «Chelsea 2 / United 1».
+        goal_size = scaled(15 if compact else 17, window_width)
+        home_goals, away_goals = match.score.home or 0, match.score.away or 0
+        home = ft.Row(
+            [home, _goals(match.score.home, won=home_goals >= away_goals, size=goal_size)],
+            spacing=4,
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        away = ft.Row(
+            [away, _goals(match.score.away, won=away_goals >= home_goals, size=goal_size)],
+            spacing=4,
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
     actions = ft.Row(
         [
-            _status_chip(match.status.value, window_width=window_width),
+            _status_chip(match, window_width=window_width),
             _forecast_chip(window_width=window_width),
         ],
         spacing=8,

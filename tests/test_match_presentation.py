@@ -36,11 +36,66 @@ def test_flag_code_home_nations_and_iso3() -> None:
     assert competition_country("CL") == "Europe"
 
 
+def _images(control) -> list:
+    found = []
+
+    def walk(node) -> None:
+        if node is None:
+            return
+        if isinstance(node, ft.Image):
+            found.append(node)
+            walk(getattr(node, "error_content", None))
+            return
+        if isinstance(node, ft.Icon):
+            found.append(node)
+            return
+        for attr in ("content", "controls"):
+            value = getattr(node, attr, None)
+            if isinstance(value, list):
+                for child in value:
+                    walk(child)
+            elif isinstance(value, ft.Control):
+                walk(value)
+
+    walk(control)
+    return found
+
+
 def test_country_label_puts_flag_before_name() -> None:
     row = country_label("England")
     assert isinstance(row, ft.Row)
-    assert any(isinstance(child, ft.Image) for child in row.controls)
+    assert [getattr(m, "src", None) for m in _images(row.controls[0])] == ["/flags/gb-eng.svg"]
     assert any(isinstance(child, ft.Text) and child.value == "England" for child in row.controls)
+
+
+def test_resolve_flag_every_area_gets_a_mark() -> None:
+    from football_prognoz.domain.country import resolve_flag
+
+    url = "https://crests.football-data.org/770.svg"
+    england = resolve_flag("England", iso3="ENG", flag_url=url)
+    assert (england.url, england.asset, england.icon) == (url, "gb-eng", None)
+    world = resolve_flag("World", iso3="INT")
+    assert (world.url, world.asset, world.icon) == (None, None, "globe")
+    assert resolve_flag("South America").icon == "globe"
+    europe = resolve_flag("Europe", iso3="EUR", flag_url="https://crests.football-data.org/EUR.svg")
+    assert europe.asset == "eu" and europe.url and europe.icon is None
+    assert resolve_flag(None, iso3="EUR").asset == "eu"
+    assert resolve_flag("Atlantis").icon == "flag"
+    assert resolve_flag("Brazil", flag_url="javascript:x").url is None
+    assert resolve_flag(None).empty
+
+
+def test_flag_mark_uses_url_with_bundled_fallback_and_globe_for_world() -> None:
+    from football_prognoz.ui.components.flag import flag_mark
+
+    url = "https://crests.football-data.org/770.svg"
+    marks = _images(flag_mark("England", flag_url=url))
+    assert marks[0].src == url
+    assert marks[1].src == "/flags/gb-eng.svg"  # offline / error fallback
+    world = _images(flag_mark("World"))
+    assert isinstance(world[0], ft.Icon) and world[0].icon == ft.Icons.PUBLIC
+    europe = _images(flag_mark("Europe"))
+    assert europe[0].src == "/flags/eu.svg"
 
 
 def test_parse_city_from_address() -> None:

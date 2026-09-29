@@ -169,3 +169,34 @@ def card(content: ft.Control, **kwargs: Any) -> ft.Container:
         padding=CARD_PADDING,
         **kwargs,
     )
+
+
+RAIL_WIDTH = 89  # NavigationRail min_width 88 + divider
+CARD_MIN_WIDTH = 330  # a league tile narrower than this truncates the names
+
+
+def content_width(window: int) -> int:
+    """Width of the page body next to the rail (both paddings removed)."""
+    rail = RAIL_WIDTH if use_rail(window) else 0
+    return max(320, window - rail - 2 * BODY_PADDING)
+
+
+def calendar_width(window: int) -> int:
+    """Calendar column next to the forecast: about a third, 380–560 px."""
+    return int(min(560, max(380, content_width(window) * 0.34)))
+
+
+def leagues_pane_width(window: int, *, split: bool) -> int:
+    """The leagues list takes 3/5 of the body in the split view, all of it otherwise."""
+    body = content_width(window)
+    return int(body * 3 / 5) - 9 if split else body
+
+
+def grid_columns(pane_width: int, *, min_width: int = CARD_MIN_WIDTH, most: int = 4) -> int:
+    """Columns that fill the pane with tiles no narrower than `min_width`."""
+    return max(1, min(most, pane_width // min_width))
+
+
+def column_span(columns: int) -> int:
+    """ResponsiveRow span (of 12) for `columns` equal tiles."""
+    return {1: 12, 2: 6, 3: 4, 4: 3}.get(columns, 12)
