@@ -11,7 +11,7 @@ def main(page: ft.Page) -> None:
 
 
 def run() -> None:
-    ft.app(target=main, assets_dir=str(ASSETS_DIR))
+    ft.run(main, assets_dir=str(ASSETS_DIR))
 
 
 if __name__ == "__main__":
