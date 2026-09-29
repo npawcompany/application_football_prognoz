@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+    <channel>
+        <title><![CDATA[BBC Sport]]></title>
+        <description><![CDATA[BBC Sport - Football]]></description>
+        <link>https://www.bbc.co.uk/sport/football</link>
+        <item>
+            <title><![CDATA[Man City without De Bruyne for Arsenal trip after ban]]></title>
+            <description><![CDATA[Manchester City will be without Kevin De Bruyne, who serves a one-match suspension.]]></description>
+            <link>https://www.bbc.co.uk/sport/football/articles/sample1?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/sport/football/articles/sample1#0</guid>
+            <pubDate>Thu, 24 Sep 2026 18:12:33 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Chelsea boss praises academy]]></title>
+            <description><![CDATA[Chelsea youngsters impress in training.]]></description>
+            <link>https://www.bbc.co.uk/sport/football/articles/sample2</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/sport/football/articles/sample2#0</guid>
+            <pubDate>Thu, 24 Sep 2026 17:00:00 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Arsenal complete loan signing]]></title>
+            <description><![CDATA[Arsenal have signed a defender on loan.]]></description>
+            <link>https://www.bbc.co.uk/sport/football/articles/sample3</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/sport/football/articles/sample3#0</guid>
+            <pubDate>Wed, 23 Sep 2026 10:00:00 GMT</pubDate>
+        </item>
+    </channel>
+</rss>
