@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from football_prognoz.domain.history import ForecastRecord
 from football_prognoz.domain.match import Match, MatchLineup, MatchStatus, Score
@@ -73,6 +74,11 @@ def _record_values(record: ForecastRecord) -> dict[str, object]:
         "actual_outcome": record.actual_outcome,
         "is_correct": None if record.is_correct is None else int(record.is_correct),
         "result_updated_at": _iso(record.result_updated_at) if record.result_updated_at else None,
+        "markets": (
+            json.dumps(record.markets, ensure_ascii=False, sort_keys=True)
+            if record.markets is not None
+            else None
+        ),
     }
 
 
@@ -106,7 +112,18 @@ def _record_from_row(row: sqlite3.Row) -> ForecastRecord:
         actual_outcome=row["actual_outcome"],
         is_correct=None if row["is_correct"] is None else bool(row["is_correct"]),
         result_updated_at=_parse_dt(row["result_updated_at"]) if row["result_updated_at"] else None,
+        markets=_json_or_none(row["markets"]) if "markets" in row.keys() else None,
     )
+
+
+def _json_or_none(text: str | None) -> dict[str, Any] | None:
+    if not text:
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
 
 
 class SQLiteStore:
@@ -272,6 +289,15 @@ class SQLiteStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_forecast_history_status
                     ON forecast_history (model_version, status);
+                CREATE TABLE IF NOT EXISTS llm_analyses (
+                    match_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    generated_at TEXT NOT NULL,
+                    kickoff_utc TEXT,
+                    PRIMARY KEY (match_id, kind)
+                );
                 """
             )
             self._migrate(conn)
@@ -295,6 +321,9 @@ class SQLiteStore:
         standing_cols = {row[1] for row in conn.execute("PRAGMA table_info(standings)")}
         if "group_name" not in standing_cols:
             conn.execute("ALTER TABLE standings ADD COLUMN group_name TEXT")
+        history_cols = {row[1] for row in conn.execute("PRAGMA table_info(forecast_history)")}
+        if "markets" not in history_cols:
+            conn.execute("ALTER TABLE forecast_history ADD COLUMN markets TEXT")
         roster_cols = {row[1] for row in conn.execute("PRAGMA table_info(team_rosters)")}
         for column in ("venue", "city", "country", "country_code"):
             if column not in roster_cols:
@@ -508,6 +537,60 @@ class SQLiteStore:
                 ),
             )
 
+    # --- saved LLM analyses (durable, survive «Очистить кэш») ----------------------
+
+    def get_llm_analysis(self, match_id: int, kind: str) -> dict[str, Any] | None:
+        """{payload, model, generated_at (datetime), kickoff_utc} or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload, model, generated_at, kickoff_utc FROM llm_analyses "
+                "WHERE match_id = ? AND kind = ?",
+                (match_id, kind),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["payload"])
+        except ValueError:
+            return None
+        return {
+            "payload": payload,
+            "model": row["model"],
+            "generated_at": _parse_dt(row["generated_at"]),
+            "kickoff_utc": _parse_dt(row["kickoff_utc"]) if row["kickoff_utc"] else None,
+        }
+
+    def save_llm_analysis(
+        self,
+        match_id: int,
+        kind: str,
+        payload: dict[str, Any],
+        *,
+        model: str,
+        generated_at: datetime,
+        kickoff_utc: datetime | None = None,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO llm_analyses (match_id, kind, payload, model, generated_at, kickoff_utc)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(match_id, kind) DO UPDATE SET
+                    payload = excluded.payload,
+                    model = excluded.model,
+                    generated_at = excluded.generated_at,
+                    kickoff_utc = excluded.kickoff_utc
+                """,
+                (
+                    match_id,
+                    kind,
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    model,
+                    _iso(generated_at),
+                    _iso(kickoff_utc) if kickoff_utc else None,
+                ),
+            )
+
     # --- forecast history (training / evaluation dataset) ------------------------
     # Never touched by clear_all(): this is collected data, not a cache.
 
@@ -557,6 +640,7 @@ class SQLiteStore:
             "sources",
             "sample_matches",
             "forecast_at",
+            "markets",
         )
         assignments = ", ".join(f"{col} = ?" for col in prediction_cols)
         with self._connect() as conn:
