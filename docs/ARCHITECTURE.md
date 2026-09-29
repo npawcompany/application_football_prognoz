@@ -14,10 +14,11 @@
 | Domain | `domain/` | dataclass/enum | I/O, Flet, httpx |
 
 ```text
-ui  -->  services  -->  data (football-data.org, CSV, SQLite)
+ui  -->  services  -->  data (football-data.org, API-Football, CSV, SQLite)
                    -->  models (Elo, Poisson)
-                   -->  ai (explainer)
+                   -->  ai (Ollama client, explainer)
 ui  -->  domain
+ui  -->  services.factory (build_service: сборка клиентов по Settings)
 ```
 
 ## Поток прогноза
@@ -27,15 +28,24 @@ ui  -->  domain
 1. Сервис матчей читает кэш SQLite; при промахе TTL ходит в football-data.org.
 2. `features` собирает форму, H2H, Elo, средние голы за 5 матчей, место в таблице только из кэша.
 3. `predictor` возвращает `p_home`, `p_draw`, `p_away` (сумма = 1): при малой выборке только Elo, иначе смесь Пуассон 65% + Elo 35%. Предварительный счёт — мода сетки по средним голам за 5 матчей, без Elo.
-4. `explainer` получает JSON фактов + вероятности + предварительный счёт. Если ключа OpenAI нет — текст не генерируется.
-5. UI показывает числа всегда; блок AI — только при наличии текста.
+4. Числа 1X2 показываются сразу. Дальше в фоне `MatchService.enrich`:
+   - `PlayerStatusService` (только с `API_FOOTBALL_KEY`) — травмы, дисквалификации, красные карточки, составы;
+   - `FactsService` собирает пакет фактов: Elo, форма, дом/выезд, тренд голов, таблица, H2H, дни отдыха, состав;
+   - `Explainer` отправляет пакет в Ollama (`POST /api/chat`, JSON-ответ), проверяет ответ (фаворит совпадает с расчётом, уверенность не выше потолка, нет «гарантий») и кэширует его.
+5. UI: блок AI в одном из состояний — «загрузка», «ошибка», «не настроен», «готово». Вероятности LLM не меняет никогда.
+
+## Сборка сервиса и настройки
+
+`services/factory.build_service(settings)` создаёт клиентов football-data.org, API-Football и Ollama. Rate limiter'ы модульные и общие для всех сборок, поэтому пересоздание сервиса после «Сохранить» в Настройках не сбрасывает лимит. Старый сервис закрывается (`close()`), `.env` перечитывается при каждом `load_settings()`.
 
 ## Кэш
 
 - SQLite: `data/cache/prognoz.db` (путь из `DATABASE_PATH`).
 - TTL по умолчанию: 6 часов для `SCHEDULED`, 24 часа для `FINISHED` и таблиц.
 - Повторный запрос к API только если кэш старше TTL или записи нет.
-- Rate limit: не чаще 10 запросов в минуту (свободный план football-data.org).
+- Rate limit: не чаще 10 запросов в минуту (свободный план football-data.org), 10 в минуту и 90 в сутки для API-Football.
+- Таблицы: `matches`, `standings`, `meta` (football-data.org); `api_cache` (ответы API-Football с TTL), `api_usage` (суточный счётчик запросов), `af_team_map` / `af_fixture_map` (сопоставление id), `llm_cache` (ответы LLM, 12 ч).
+- «Очистить кэш» удаляет `api_cache` и `llm_cache`, но не сопоставления и не счётчик расхода.
 
 ## Секреты
 

@@ -97,7 +97,7 @@ def prepare_env() -> None:
     # Dummy key so the UI boots into Leagues (not the empty-key Settings gate).
     # Client calls fail and fall back to the seeded SQLite cache — no live API needed.
     os.environ["FOOTBALL_DATA_API_KEY"] = "vkr-screenshot-offline"
-    os.environ["OPENAI_API_KEY"] = ""
+    os.environ["OLLAMA_API_KEY"] = ""
     os.environ["DATABASE_PATH"] = str(TMP_DB.relative_to(ROOT))
     os.environ["PREFETCH_WAIT_ON_START"] = "false"
     os.environ["SHOW_AI_BLOCK"] = "false"

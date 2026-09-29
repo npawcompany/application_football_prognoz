@@ -8,15 +8,30 @@
 
 ## Стек
 
-Flet (окно приложения), httpx, pandas, SQLite, Elo + Poisson. LLM (OpenAI или Ollama) только объясняет уже посчитанные вероятности.
+Flet (окно приложения), httpx, pandas, SQLite, Elo + Poisson. LLM (Ollama Cloud или локальный Ollama) только объясняет уже посчитанные вероятности и никогда их не меняет.
 
-Данные: [football-data.org](https://www.football-data.org/) (календарь и результаты) и [football-data.co.uk](https://www.football-data.co.uk/data.php) (длинные CSV).
+Данные: [football-data.org](https://www.football-data.org/) (календарь и результаты), [football-data.co.uk](https://www.football-data.co.uk/data.php) (длинные CSV) и опционально [API-Football v3](https://www.api-football.com/documentation-v3) (травмы, дисквалификации, карточки, составы).
 
 ## Требования
 
 - Python 3.11+
 - Ключ [football-data.org](https://www.football-data.org/client/register) (бесплатный план)
-- Опционально: ключ OpenAI или локальный Ollama
+- Опционально: ключ [Ollama Cloud](https://ollama.com/settings/keys) или локальный Ollama
+- Опционально: ключ [API-Football](https://dashboard.api-football.com/register) (бесплатно 100 запросов в сутки)
+
+## Настройка AI и API-Football
+
+Все ключи вводятся в разделе **Настройки** (или в `.env`) и применяются сразу после «Сохранить», без перезапуска.
+
+| Переменная | По умолчанию | Зачем |
+|---|---|---|
+| `OLLAMA_API_KEY` | пусто | Ключ Ollama Cloud. Пусто и облачный хост = AI-разбор выключен |
+| `OLLAMA_HOST` | `https://ollama.com` | Для локального Ollama: `http://127.0.0.1:11434` (ключ не нужен) |
+| `OLLAMA_MODEL` | `deepseek-v4.1-flash` | Основная модель разбора |
+| `OLLAMA_FALLBACK_MODEL` | `gpt-oss:120b` | Одна повторная попытка при 404/5xx/пустом ответе |
+| `API_FOOTBALL_KEY` | пусто | Блок «Состав и доступность». Пусто = 0 запросов |
+
+API-Football расходует не больше 90 запросов в сутки (счётчик в SQLite), ответы кэшируются. На бесплатном плане текущий сезон может быть недоступен — тогда блок показывает заметку, прогноз не ломается.
 
 ## Запуск
 
