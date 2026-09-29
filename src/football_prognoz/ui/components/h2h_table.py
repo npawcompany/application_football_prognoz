@@ -30,12 +30,8 @@ def _score_half(goals: int | None, *, won: bool, window_width: int) -> ft.Text:
 def _h2h_row(match: Match, *, window_width: int) -> ft.Control:
     home_goals = match.score.home
     away_goals = match.score.away
-    home_won = (
-        home_goals is not None and away_goals is not None and home_goals > away_goals
-    )
-    away_won = (
-        home_goals is not None and away_goals is not None and away_goals > home_goals
-    )
+    home_won = home_goals is not None and away_goals is not None and home_goals > away_goals
+    away_won = home_goals is not None and away_goals is not None and away_goals > home_goals
     return ft.Container(
         content=ft.Row(
             [

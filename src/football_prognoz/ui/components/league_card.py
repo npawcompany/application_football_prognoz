@@ -47,9 +47,7 @@ def league_card(
                         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     ),
                     ft.Container(
-                        content=ft.Text(
-                            item.code, size=11, weight=ft.FontWeight.W_600, color=FG
-                        ),
+                        content=ft.Text(item.code, size=11, weight=ft.FontWeight.W_600, color=FG),
                         bgcolor=SURFACE,
                         padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                         border_radius=6,

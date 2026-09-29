@@ -570,6 +570,7 @@ class FootballApp:
 
         runner = getattr(self.page, "run_task", None)
         if callable(runner):
+
             async def tick() -> None:
                 apply()
 

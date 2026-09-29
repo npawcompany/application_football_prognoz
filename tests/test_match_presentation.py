@@ -78,9 +78,7 @@ def test_h2h_table_shows_score_not_names() -> None:
     )
     view = h2h_table((match,))
     blob = " ".join(
-        str(getattr(node, "value", "") or "")
-        for node in _walk(view)
-        if isinstance(node, ft.Text)
+        str(getattr(node, "value", "") or "") for node in _walk(view) if isinstance(node, ft.Text)
     )
     assert "1" in blob and "2" in blob
     assert "Дома" in blob
@@ -108,20 +106,14 @@ def test_score_card_names_stay_on_one_row() -> None:
         for node in _walk(view)
         if isinstance(node, ft.Row)
         and node.wrap is False
+        and any(isinstance(child, ft.Text) and child.value == "Arsenal FC" for child in _walk(node))
         and any(
-            isinstance(child, ft.Text) and child.value == "Arsenal FC"
-            for child in _walk(node)
-        )
-        and any(
-            isinstance(child, ft.Text) and child.value == "Leeds United FC"
-            for child in _walk(node)
+            isinstance(child, ft.Text) and child.value == "Leeds United FC" for child in _walk(node)
         )
     ]
     assert name_rows
     blob = " ".join(
-        str(getattr(node, "value", "") or "")
-        for node in _walk(view)
-        if isinstance(node, ft.Text)
+        str(getattr(node, "value", "") or "") for node in _walk(view) if isinstance(node, ft.Text)
     )
     assert "VS" in blob
     assert "Emirates Stadium" in blob

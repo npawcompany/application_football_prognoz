@@ -157,9 +157,7 @@ def _favorite_teams_picker(
         dropdown.value = None
         _rebuild_chips()
 
-    options = [
-        ft.DropdownOption(key=str(team.id), text=team.name) for team in form.team_choices
-    ]
+    options = [ft.DropdownOption(key=str(team.id), text=team.name) for team in form.team_choices]
     dropdown = ft.Dropdown(
         options=options,
         enable_filter=True,
@@ -173,9 +171,7 @@ def _favorite_teams_picker(
         border_radius=10,
         text_size=scaled(14, window_width),
         content_padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-        hint_text="Выберите команду"
-        if options
-        else "Команды появятся после загрузки календаря",
+        hint_text="Выберите команду" if options else "Команды появятся после загрузки календаря",
         disabled=disabled or not options,
         menu_height=320,
         on_select=_add,

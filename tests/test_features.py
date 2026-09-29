@@ -241,9 +241,7 @@ def test_clear_cache_empties_store_and_resets_elo(tmp_path: Path) -> None:
     assert codes == {item.code for item in FREE_COMPETITIONS}
 
 
-def test_competition_matches_includes_finished(
-    tmp_path: Path, matches_payload: dict
-) -> None:
+def test_competition_matches_includes_finished(tmp_path: Path, matches_payload: dict) -> None:
     store = SQLiteStore(tmp_path / "svc.db")
     matches = [match_from_api(raw, "PL") for raw in matches_payload["matches"]]
     store.upsert_matches(matches)

@@ -70,6 +70,4 @@ class MatchLineup:
     away_bench: tuple[int, ...] = ()
 
     def is_empty(self) -> bool:
-        return not (
-            self.home_start or self.home_bench or self.away_start or self.away_bench
-        )
+        return not (self.home_start or self.home_bench or self.away_start or self.away_bench)

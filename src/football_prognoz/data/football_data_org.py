@@ -153,9 +153,7 @@ def roster_from_api(payload: dict[str, Any]) -> TeamRoster:
     team_id = int(payload.get("id") or 0)
     coach_raw = payload.get("coach")
     coach = (
-        _person_from_api(coach_raw, default_role="COACH")
-        if isinstance(coach_raw, dict)
-        else None
+        _person_from_api(coach_raw, default_role="COACH") if isinstance(coach_raw, dict) else None
     )
     players: list[Person] = []
     for raw in payload.get("squad") or []:
@@ -273,9 +271,7 @@ class FootballDataOrgClient:
         if date_to:
             params["dateTo"] = date_to
         payload = self._get(f"/competitions/{competition_code}/matches", params=params)
-        matches = [
-            match_from_api(raw, competition_code) for raw in payload.get("matches") or []
-        ]
+        matches = [match_from_api(raw, competition_code) for raw in payload.get("matches") or []]
         matches.sort(key=lambda m: m.utc_date)
         return matches
 

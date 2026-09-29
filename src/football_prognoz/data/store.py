@@ -340,10 +340,7 @@ class SQLiteStore:
         """
         with self._connect() as conn:
             rows = conn.execute(query).fetchall()
-        return [
-            Team(id=int(row["id"]), name=str(row["name"]), crest=row["crest"])
-            for row in rows
-        ]
+        return [Team(id=int(row["id"]), name=str(row["name"]), crest=row["crest"]) for row in rows]
 
     def upsert_roster(self, roster: TeamRoster) -> None:
         now = _utcnow().isoformat()

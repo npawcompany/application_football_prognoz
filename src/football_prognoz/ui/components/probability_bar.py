@@ -143,8 +143,7 @@ def probability_bar(
         )
 
     tile_controls = [
-        tile(code, caption, side, value, color)
-        for code, caption, side, value, color in tiles
+        tile(code, caption, side, value, color) for code, caption, side, value, color in tiles
     ]
     if compact:
         tile_layout: ft.Control = ft.Column(

@@ -277,4 +277,3 @@ def test_page_clamped_if_out_of_range() -> None:
     negative = paginate(items, page=-3, page_size=2)
     assert negative.page == 0
     assert _ids(negative) == [1, 2]
-

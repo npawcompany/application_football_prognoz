@@ -114,9 +114,7 @@ def _group_players(players: list[Person], *, window_width: int) -> list[ft.Contr
         bucket = grouped[key]
         if not bucket:
             continue
-        blocks.append(
-            ft.Text(_POSITION_RU[key], size=scaled(11, window_width), color=MUTED)
-        )
+        blocks.append(ft.Text(_POSITION_RU[key], size=scaled(11, window_width), color=MUTED))
         blocks.extend(_person_row(player, window_width=window_width) for player in bucket)
     return blocks
 
