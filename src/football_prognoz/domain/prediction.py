@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from football_prognoz.domain.match import Match, MatchLineup
+from football_prognoz.domain.news import NewsReport
 from football_prognoz.domain.player_status import PlayerStatusReport
 from football_prognoz.domain.team import StandingRow, TeamRoster
 
@@ -121,5 +122,6 @@ class MatchForecast:
     away_roster: TeamRoster | None = None
     lineup: MatchLineup | None = None
     player_status: PlayerStatusReport | None = None
+    news: NewsReport | None = None
     explanation_error: str | None = None
     sources: tuple[str, ...] = field(default_factory=tuple)

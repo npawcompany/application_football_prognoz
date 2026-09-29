@@ -20,6 +20,7 @@ from football_prognoz.domain.team import Competition, StandingRow, Team, TeamRos
 from football_prognoz.models.predictor import Predictor
 from football_prognoz.services.facts import SRC_FOOTBALL_DATA, SRC_MODEL, FactsService
 from football_prognoz.services.features import FeatureService
+from football_prognoz.services.news import NewsService
 from football_prognoz.services.player_status import PlayerStatusService
 
 log = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class MatchService:
         predictor: Predictor,
         explainer: Explainer,
         player_status: PlayerStatusService | None = None,
+        news: NewsService | None = None,
     ) -> None:
         self._client = client
         self._store = store
@@ -48,6 +50,7 @@ class MatchService:
         self._predictor = predictor
         self._explainer = explainer
         self._player_status = player_status
+        self._news = news
         self._facts = FactsService(store)
 
     @property
@@ -68,6 +71,7 @@ class MatchService:
             getattr(self._client, "close", None),
             self._explainer.close,
             getattr(self._player_status, "close", None),
+            getattr(self._news, "close", None),
         ):
             if not callable(closer):
                 continue
@@ -252,6 +256,25 @@ class MatchService:
         sources = tuple(dict.fromkeys(forecast.sources + report.sources))
         return replace(forecast, player_status=report, sources=sources)
 
+    @property
+    def news_enabled(self) -> bool:
+        return self._news is not None and self._news.enabled
+
+    def attach_news(self, forecast: MatchForecast) -> MatchForecast:
+        """Add recent team headlines (GNews or RSS). Never raises, never touches 1X2."""
+        if not self.news_enabled:
+            return forecast
+        assert self._news is not None
+        try:
+            report = self._news.report_for(forecast.match)
+        except Exception as exc:  # noqa: BLE001 — news is optional context
+            log.warning("News lookup failed: %s", exc)
+            return forecast
+        if report is None:
+            return forecast
+        sources = forecast.sources + (report.sources if report.has_data() else ())
+        return replace(forecast, news=report, sources=tuple(dict.fromkeys(sources)))
+
     def explain_forecast(self, forecast: MatchForecast) -> MatchForecast:
         """Ask the LLM for a structured analysis; LLM failures land in explanation_error."""
         if not self._explainer.enabled:
@@ -262,6 +285,7 @@ class MatchService:
             forecast.probabilities,
             forecast.scoreline,
             forecast.player_status,
+            forecast.news,
         )
         try:
             explanation = self._explainer.explain(
@@ -287,6 +311,7 @@ class MatchService:
     def enrich(self, forecast: MatchForecast, *, explain: bool = True) -> MatchForecast:
         """Background step after the numbers are shown: player status, then LLM."""
         enriched = self.attach_player_status(forecast)
+        enriched = self.attach_news(enriched)
         if explain and self._explainer.enabled:
             enriched = self.explain_forecast(enriched)
         return enriched

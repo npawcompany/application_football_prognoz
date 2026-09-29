@@ -1,4 +1,5 @@
 from football_prognoz.domain.match import Match, MatchLineup, MatchStatus, Score
+from football_prognoz.domain.news import NewsItem, NewsReport, TeamNews
 from football_prognoz.domain.player_status import (
     Absence,
     CardEvent,
@@ -29,6 +30,9 @@ __all__ = [
     "Factor",
     "FixtureLineup",
     "LineupPlayer",
+    "NewsItem",
+    "NewsReport",
+    "TeamNews",
     "PlayerRating",
     "PlayerStatusReport",
     "TeamStatus",

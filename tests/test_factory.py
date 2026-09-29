@@ -35,3 +35,15 @@ def test_rebuild_shares_rate_limiter_and_closes_clients(tmp_path: Path) -> None:
     assert first._client._client.is_closed  # noqa: SLF001
     second.close()
     assert second._client._client.is_closed  # noqa: SLF001
+
+
+def test_news_service_follows_settings(tmp_path: Path) -> None:
+    rss_only = build_service(_settings(tmp_path))
+    assert rss_only.news_enabled is True
+    assert rss_only._news.provider == "rss"  # noqa: SLF001
+    keyed = build_service(_settings(tmp_path, gnews_api_key="g"))
+    assert keyed._news.provider == "gnews"  # noqa: SLF001
+    off = build_service(_settings(tmp_path, news_rss_enabled=False))
+    assert off.news_enabled is False
+    for service in (rss_only, keyed, off):
+        service.close()

@@ -10,6 +10,7 @@ from football_prognoz.ui.components.crest import crest_image
 from football_prognoz.ui.components.fact_card import fact_card
 from football_prognoz.ui.components.form_pills import form_pills
 from football_prognoz.ui.components.h2h_table import h2h_table
+from football_prognoz.ui.components.news_card import news_card
 from football_prognoz.ui.components.player_status_card import player_status_card
 from football_prognoz.ui.components.probability_bar import preliminary_score_card, probability_bar
 from football_prognoz.ui.components.squad_card import squad_card
@@ -264,6 +265,8 @@ def match_detail_view(
     )
     if forecast.player_status is not None:
         body.append(player_status_card(forecast.player_status, window_width=layout_width))
+    if forecast.news is not None:
+        body.append(news_card(forecast.news, window_width=layout_width))
     if show_ai_block:
         body.append(
             ai_block(

@@ -30,6 +30,7 @@ ui  -->  services.factory (build_service: сборка клиентов по Set
 3. `predictor` возвращает `p_home`, `p_draw`, `p_away` (сумма = 1): при малой выборке только Elo, иначе смесь Пуассон 65% + Elo 35%. Предварительный счёт — мода сетки по средним голам за 5 матчей, без Elo.
 4. Числа 1X2 показываются сразу. Дальше в фоне `MatchService.enrich`:
    - `PlayerStatusService` (только с `API_FOOTBALL_KEY`) — травмы, дисквалификации, красные карточки, составы;
+   - `NewsService` — свежие заголовки о командах: GNews по ключу, иначе RSS спортивных изданий (`NEWS_RSS_ENABLED`);
    - `FactsService` собирает пакет фактов: Elo, форма, дом/выезд, тренд голов, таблица, H2H, дни отдыха, состав;
    - `Explainer` отправляет пакет в Ollama (`POST /api/chat`, JSON-ответ), проверяет ответ (фаворит совпадает с расчётом, уверенность не выше потолка, нет «гарантий») и кэширует его.
 5. UI: блок AI в одном из состояний — «загрузка», «ошибка», «не настроен», «готово». Вероятности LLM не меняет никогда.
@@ -44,7 +45,7 @@ ui  -->  services.factory (build_service: сборка клиентов по Set
 - TTL по умолчанию: 6 часов для `SCHEDULED`, 24 часа для `FINISHED` и таблиц.
 - Повторный запрос к API только если кэш старше TTL или записи нет.
 - Rate limit: не чаще 10 запросов в минуту (свободный план football-data.org), 10 в минуту и 90 в сутки для API-Football.
-- Таблицы: `matches`, `standings`, `meta` (football-data.org); `api_cache` (ответы API-Football с TTL), `api_usage` (суточный счётчик запросов), `af_team_map` / `af_fixture_map` (сопоставление id), `llm_cache` (ответы LLM, 12 ч).
+- Таблицы: `matches`, `standings`, `meta` (football-data.org); `api_cache` (ответы API-Football, GNews и RSS с TTL), `api_usage` (суточные счётчики запросов API-Football и GNews), `af_team_map` / `af_fixture_map` (сопоставление id), `llm_cache` (ответы LLM, 12 ч).
 - «Очистить кэш» удаляет `api_cache` и `llm_cache`, но не сопоставления и не счётчик расхода.
 
 ## Секреты

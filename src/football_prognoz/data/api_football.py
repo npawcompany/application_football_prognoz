@@ -85,18 +85,21 @@ class DailyBudget(Protocol):
 class StoreBudget:
     """Daily budget persisted in SQLite (`api_usage`), shared by every client instance."""
 
-    def __init__(self, store: Any, limit: int = DEFAULT_DAILY_BUDGET) -> None:
+    def __init__(
+        self, store: Any, limit: int = DEFAULT_DAILY_BUDGET, *, provider: str = PROVIDER
+    ) -> None:
         self._store = store
         self.limit = limit
+        self.provider = provider
 
     def try_consume(self) -> bool:
-        return bool(self._store.consume_api_call(PROVIDER, self.limit))
+        return bool(self._store.consume_api_call(self.provider, self.limit))
 
     def mark_exhausted(self) -> None:
-        self._store.mark_api_exhausted(PROVIDER)
+        self._store.mark_api_exhausted(self.provider)
 
     def remaining(self) -> int:
-        used, exhausted = self._store.api_calls_today(PROVIDER)
+        used, exhausted = self._store.api_calls_today(self.provider)
         return 0 if exhausted else max(0, self.limit - used)
 
 

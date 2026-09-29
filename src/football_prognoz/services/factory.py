@@ -16,14 +16,17 @@ from football_prognoz.data.api_football import (
     StoreBudget,
 )
 from football_prognoz.data.football_data_org import FootballDataOrgClient, RateLimiter
+from football_prognoz.data.news import GNEWS_PER_MINUTE, GNewsClient, RssClient
 from football_prognoz.data.store import SQLiteExplanationCache, SQLiteStore
 from football_prognoz.models.predictor import Predictor
 from football_prognoz.services.features import FeatureService
 from football_prognoz.services.matches import MatchService
+from football_prognoz.services.news import NewsService
 from football_prognoz.services.player_status import PlayerStatusService
 
 FOOTBALL_DATA_LIMITER = RateLimiter(10)
 API_FOOTBALL_LIMITER = RateLimiter(DEFAULT_PER_MINUTE)
+GNEWS_LIMITER = RateLimiter(GNEWS_PER_MINUTE)
 
 
 def build_llm(settings: Settings) -> OllamaClient | None:
@@ -35,6 +38,19 @@ def build_llm(settings: Settings) -> OllamaClient | None:
         api_key=settings.ollama_api_key,
         fallback_model=settings.ollama_fallback_model,
     )
+
+
+def build_news(settings: Settings, store: SQLiteStore) -> NewsService | None:
+    """GNews with a key, RSS as keyless fallback (NEWS_RSS_ENABLED), else None."""
+    if not settings.news_enabled:
+        return None
+    gnews = (
+        GNewsClient(settings.gnews_api_key, limiter=GNEWS_LIMITER)
+        if settings.has_gnews_key
+        else None
+    )
+    rss = RssClient() if settings.news_rss_enabled else None
+    return NewsService(store, gnews=gnews, rss=rss)
 
 
 def build_service(
@@ -66,4 +82,5 @@ def build_service(
         predictor=Predictor(),
         explainer=Explainer(llm, model_name, cache=SQLiteExplanationCache(store)),
         player_status=player_status,
+        news=build_news(settings, store),
     )

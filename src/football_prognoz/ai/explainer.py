@@ -27,14 +27,15 @@ from football_prognoz.domain.prediction import (
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "analysis-v1"
+PROMPT_VERSION = "analysis-v2"
 
 SYSTEM_PROMPT = """You explain football statistical forecasts for a desktop app.
 You receive JSON with: match, probabilities (1X2 computed by a local Elo + Poisson model;
 they are FINAL), favorite ("1" home, "X" draw, "2" away), facts, context (Elo gap, form,
 home/away records, goal trends, standings, head-to-head, rest days), an optional
 preliminary_score, an optional player_status block (absences, recent red cards,
-transfers, lineups, ratings) and data_sources.
+transfers, lineups, ratings), an optional news block (recent media headlines per team
+with topic) and data_sources.
 
 Return ONLY one JSON object, no markdown, with exactly these keys:
 {
@@ -54,6 +55,8 @@ Rules:
 - Every factor must be based on a value present in the JSON. Do not invent injuries,
   lineups, transfers, xG, weather, or scores that are not in the JSON. If player_status
   is null, say nothing specific about players.
+- News headlines are unverified media reports: mention them only as "по данным СМИ",
+  never as confirmed facts, and never let them override player_status or the numbers.
 - "favorite" MUST equal the "favorite" field of the input. Never recompute, round
   differently, or contradict the probabilities; the verdict explains them.
 - Never claim a guaranteed or certain outcome. Use cautious wording.
@@ -294,8 +297,10 @@ class Explainer:
             "data_sources": list(facts.sources) if facts else [],
         }
         if facts is not None:
-            payload["context"] = {k: v for k, v in facts.data.items() if k != "player_status"}
+            lifted = {"player_status", "news"}
+            payload["context"] = {k: v for k, v in facts.data.items() if k not in lifted}
             payload["player_status"] = facts.data.get("player_status")
+            payload["news"] = facts.data.get("news")
         if scoreline is not None:
             payload["preliminary_score"] = {
                 "label": scoreline.label,

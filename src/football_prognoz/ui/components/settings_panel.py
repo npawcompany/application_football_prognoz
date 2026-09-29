@@ -26,6 +26,8 @@ class SettingsForm:
     ollama_model: str = DEFAULT_OLLAMA_MODEL
     ollama_fallback_model: str = DEFAULT_OLLAMA_FALLBACK_MODEL
     api_football_key: str = ""
+    gnews_api_key: str = ""
+    news_rss_enabled: bool = True
     database_path: str = "data/cache/prognoz.db"
     favorite_leagues: str = ""
     favorite_teams: str = ""
@@ -55,6 +57,8 @@ class SettingsForm:
             ollama_model=settings.ollama_model,
             ollama_fallback_model=settings.ollama_fallback_model,
             api_football_key=settings.api_football_key,
+            gnews_api_key=settings.gnews_api_key,
+            news_rss_enabled=settings.news_rss_enabled,
             database_path=settings.database_path,
             favorite_leagues=settings.favorite_leagues,
             favorite_teams=settings.favorite_teams,

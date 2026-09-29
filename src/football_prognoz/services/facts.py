@@ -11,6 +11,7 @@ from typing import Any
 
 from football_prognoz.data.store import SQLiteStore
 from football_prognoz.domain.match import Match
+from football_prognoz.domain.news import NewsReport, TeamNews
 from football_prognoz.domain.player_status import PlayerStatusReport, TeamStatus
 from football_prognoz.domain.prediction import (
     FactsPackage,
@@ -142,6 +143,30 @@ def player_status_facts(report: PlayerStatusReport | None) -> dict[str, Any] | N
     }
 
 
+def _team_news_facts(team: TeamNews) -> list[dict[str, Any]]:
+    return [
+        {
+            "title": item.title,
+            "source": item.source,
+            "published": item.published_at.date().isoformat(),
+            "topic": item.topic_label,
+        }
+        for item in team.items
+    ]
+
+
+def news_facts(report: NewsReport | None) -> dict[str, Any] | None:
+    """Indirect factor: recent headlines. Unverified, never part of 1X2."""
+    if report is None or not report.has_data():
+        return None
+    return {
+        "home": _team_news_facts(report.home),
+        "away": _team_news_facts(report.away),
+        "provider": report.provider,
+        "note": "заголовки СМИ не проверены и не меняют вероятности 1X2",
+    }
+
+
 class FactsService:
     def __init__(self, store: SQLiteStore) -> None:
         self._store = store
@@ -153,6 +178,7 @@ class FactsService:
         probabilities: Probabilities,
         scoreline: Scoreline | None = None,
         player_status: PlayerStatusReport | None = None,
+        news: NewsReport | None = None,
     ) -> FactsPackage:
         history = [
             item
@@ -248,10 +274,13 @@ class FactsService:
                 "note": "только по матчам этой лиги в кэше",
             },
             "player_status": player_status_facts(player_status),
+            "news": news_facts(news),
         }
         if scoreline is not None:
             data["preliminary_score"] = scoreline.label
         sources = [SRC_FOOTBALL_DATA, SRC_MODEL]
         if player_status is not None and player_status.has_data():
             sources.extend(player_status.sources)
+        if news is not None and news.has_data():
+            sources.extend(news.sources)
         return FactsPackage(data=data, sources=tuple(dict.fromkeys(sources)))

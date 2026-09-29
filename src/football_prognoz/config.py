@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     ollama_model: str = DEFAULT_OLLAMA_MODEL
     ollama_fallback_model: str = DEFAULT_OLLAMA_FALLBACK_MODEL
     api_football_key: str = ""
+    gnews_api_key: str = ""
+    news_rss_enabled: bool = True
     database_path: str = "data/cache/prognoz.db"
     favorite_leagues: str = ""  # comma-separated codes e.g. PL,PD
     favorite_teams: str = ""  # comma-separated football-data.org team ids
@@ -91,6 +93,14 @@ class Settings(BaseSettings):
     @property
     def has_api_football_key(self) -> bool:
         return bool(self.api_football_key.strip())
+
+    @property
+    def has_gnews_key(self) -> bool:
+        return bool(self.gnews_api_key.strip())
+
+    @property
+    def news_enabled(self) -> bool:
+        return self.has_gnews_key or self.news_rss_enabled
 
 
 def load_settings(env_file: Path | None = None) -> Settings:

@@ -30,6 +30,8 @@ Flet (окно приложения), httpx, pandas, SQLite, Elo + Poisson. LLM 
 | `OLLAMA_MODEL` | `deepseek-v4.1-flash` | Основная модель разбора |
 | `OLLAMA_FALLBACK_MODEL` | `gpt-oss:120b` | Одна повторная попытка при 404/5xx/пустом ответе |
 | `API_FOOTBALL_KEY` | пусто | Блок «Состав и доступность». Пусто = 0 запросов |
+| `GNEWS_API_KEY` | пусто | Новости команд через [GNews](https://gnews.io) (≤ 80 запросов/сутки, кэш 6 ч) |
+| `NEWS_RSS_ENABLED` | `true` | Новости из RSS BBC Sport, Guardian, Sky Sports, ESPN без ключа (кэш 1 ч) |
 
 API-Football расходует не больше 90 запросов в сутки (счётчик в SQLite), ответы кэшируются. На бесплатном плане текущий сезон может быть недоступен — тогда блок показывает заметку, прогноз не ломается.
 

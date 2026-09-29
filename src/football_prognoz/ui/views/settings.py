@@ -248,6 +248,21 @@ def settings_view(
         password=True,
         can_reveal_password=True,
     )
+    gnews_wrap = _settings_field(
+        label="GNEWS_API_KEY · необязательный (новости команд)",
+        value=form.gnews_api_key,
+        disabled=saving,
+        window_width=window_width,
+        password=True,
+        can_reveal_password=True,
+    )
+    rss_sw = ft.Switch(
+        label="Новости из RSS (BBC, Guardian, Sky, ESPN) без ключа",
+        value=form.news_rss_enabled,
+        active_color=ACCENT,
+        disabled=saving,
+        label_text_style=ft.TextStyle(color=FG, size=13),
+    )
     leagues_wrap = _settings_field(
         label="Любимые лиги",
         value=form.favorite_leagues,
@@ -264,6 +279,7 @@ def settings_view(
     model_field = _field_value(model_wrap)
     fallback_field = _field_value(fallback_wrap)
     api_football_field = _field_value(api_football_wrap)
+    gnews_field = _field_value(gnews_wrap)
     leagues_field = _field_value(leagues_wrap)
     prefetch_sw, ai_sw, compact_sw, system_sw = settings_switches(
         form.prefetch_wait_on_start,
@@ -282,6 +298,8 @@ def settings_view(
                 "ollama_model": model_field.value or DEFAULT_OLLAMA_MODEL,
                 "ollama_fallback_model": fallback_field.value or DEFAULT_OLLAMA_FALLBACK_MODEL,
                 "api_football_key": api_football_field.value or "",
+                "gnews_api_key": gnews_field.value or "",
+                "news_rss_enabled": bool(rss_sw.value),
                 "favorite_leagues": leagues_field.value or "",
                 "favorite_teams": teams_value(),
                 "prefetch_wait_on_start": bool(prefetch_sw.value),
@@ -299,6 +317,8 @@ def settings_view(
             model_wrap,
             fallback_wrap,
             api_football_wrap,
+            gnews_wrap,
+            _switch_row(rss_sw, window_width=window_width),
             leagues_wrap,
             teams_wrap,
             _switch_row(prefetch_sw, window_width=window_width),

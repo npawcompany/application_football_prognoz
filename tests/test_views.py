@@ -358,3 +358,32 @@ def test_settings_view_has_ollama_and_api_football_fields() -> None:
     for label in ("OLLAMA_API_KEY", "OLLAMA_HOST", "OLLAMA_MODEL", "API_FOOTBALL_KEY"):
         assert label in blob
     assert "OPENAI" not in blob
+
+
+def test_match_detail_news_card() -> None:
+    from dataclasses import replace
+    from datetime import UTC, datetime
+
+    from football_prognoz.domain.news import NewsItem, NewsReport, TeamNews
+
+    report = NewsReport(
+        home=TeamNews(
+            "Arsenal",
+            (
+                NewsItem(
+                    "Saka doubt for City clash",
+                    "BBC Sport",
+                    "https://x",
+                    datetime(2026, 9, 24, tzinfo=UTC),
+                    "injury",
+                ),
+            ),
+        ),
+        away=TeamNews("Man City"),
+        provider="rss",
+    )
+    blob = _detail(replace(_forecast(), news=report))
+    assert "Новости команд" in blob
+    assert "24.09 · травма · Saka doubt for City clash (BBC Sport)" in blob
+    assert "свежих заголовков нет" in blob
+    assert "не влияют на вероятности 1X2" in blob

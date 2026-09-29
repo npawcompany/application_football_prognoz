@@ -732,7 +732,9 @@ class FootballApp:
         wants_llm = self.settings.show_ai_block and bool(
             getattr(self.service, "llm_enabled", False)
         )
-        wants_status = bool(getattr(self.service, "player_status_enabled", False))
+        wants_status = bool(getattr(self.service, "player_status_enabled", False)) or bool(
+            getattr(self.service, "news_enabled", False)
+        )
         self.ai_error = None
         self.ai_state = AI_LOADING if wants_llm else AI_NOT_CONFIGURED
         self._render_panes(parts="right" if self._pane_kind == "split" else "all")
@@ -798,6 +800,7 @@ class FootballApp:
                 ("OLLAMA_MODEL", "ollama_model", DEFAULT_OLLAMA_MODEL),
                 ("OLLAMA_FALLBACK_MODEL", "ollama_fallback_model", DEFAULT_OLLAMA_FALLBACK_MODEL),
                 ("API_FOOTBALL_KEY", "api_football_key", ""),
+                ("GNEWS_API_KEY", "gnews_api_key", ""),
                 ("FAVORITE_LEAGUES", "favorite_leagues", ""),
                 ("FAVORITE_TEAMS", "favorite_teams", ""),
             )
@@ -808,6 +811,7 @@ class FootballApp:
                 ("SHOW_AI_BLOCK", "show_ai_block", True),
                 ("COMPACT_FIXTURES", "compact_fixtures", False),
                 ("SYSTEM_NOTIFICATIONS", "system_notifications", False),
+                ("NEWS_RSS_ENABLED", "news_rss_enabled", True),
             )
             for env_key, field, default in flags:
                 write_env_value(env_key, _env_flag(payload.get(field, default)))

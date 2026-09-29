@@ -131,3 +131,88 @@ def test_explain_forecast_success_keeps_probabilities_and_adds_sources(
     assert result.probabilities == forecast.probabilities
     assert "Ollama: deepseek-v4.1-flash" in result.sources
     assert SRC_FOOTBALL_DATA in result.sources
+
+
+def test_attach_news_adds_report_sources_and_prompt_block(
+    tmp_path: Path, matches_payload: dict
+) -> None:
+    from datetime import UTC, datetime
+
+    from football_prognoz.domain.news import NewsItem, NewsReport, TeamNews
+
+    report = NewsReport(
+        home=TeamNews(
+            "Arsenal",
+            (
+                NewsItem(
+                    "Saka doubt",
+                    "BBC Sport",
+                    "https://x",
+                    datetime(2026, 9, 24, tzinfo=UTC),
+                    "injury",
+                ),
+            ),
+        ),
+        away=TeamNews("Man City"),
+        provider="rss",
+        sources=("RSS спортивных изданий: BBC Sport",),
+    )
+
+    class _News:
+        enabled = True
+
+        def report_for(self, _match):
+            return report
+
+        def close(self) -> None:
+            pass
+
+    store = _store(tmp_path, matches_payload)
+    captured: dict = {}
+
+    class _CaptureLLM:
+        def chat(self, system: str, user: str, **_kwargs) -> LLMReply:
+            captured["user"] = json.loads(user)
+            raise LLMError("stop", 500)
+
+    service = MatchService(
+        client=object(),  # type: ignore[arg-type]
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(_CaptureLLM(), "m"),
+        news=_News(),  # type: ignore[arg-type]
+    )
+    assert service.news_enabled is True
+    match = service.get_match(201)
+    assert match is not None
+    forecast = service.forecast(match, explain=False)
+    enriched = service.enrich(forecast)
+    assert enriched.news is report
+    assert "RSS спортивных изданий: BBC Sport" in enriched.sources
+    assert enriched.probabilities == forecast.probabilities
+    news_block = captured["user"]["news"]
+    assert news_block["home"][0]["topic"] == "травма"
+    assert "news" not in captured["user"]["context"]
+
+
+def test_attach_news_failure_keeps_forecast(tmp_path: Path, matches_payload: dict) -> None:
+    class _Broken:
+        enabled = True
+
+        def report_for(self, _match):
+            raise RuntimeError("boom")
+
+    store = _store(tmp_path, matches_payload)
+    service = MatchService(
+        client=object(),  # type: ignore[arg-type]
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(None, "m"),
+        news=_Broken(),  # type: ignore[arg-type]
+    )
+    match = service.get_match(201)
+    assert match is not None
+    forecast = service.forecast(match, explain=False)
+    assert service.attach_news(forecast) == forecast

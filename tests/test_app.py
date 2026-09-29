@@ -307,6 +307,8 @@ def test_save_settings_accepts_dict(monkeypatch) -> None:
             "ollama_model": "deepseek-v4.1-flash",
             "ollama_fallback_model": "gpt-oss:120b",
             "api_football_key": "",
+            "gnews_api_key": "gn-key",
+            "news_rss_enabled": False,
             "favorite_leagues": "PL,PD",
             "favorite_teams": "57,64",
             "prefetch_wait_on_start": False,
@@ -322,6 +324,8 @@ def test_save_settings_accepts_dict(monkeypatch) -> None:
     assert written["OLLAMA_MODEL"] == "deepseek-v4.1-flash"
     assert written["OLLAMA_FALLBACK_MODEL"] == "gpt-oss:120b"
     assert written["API_FOOTBALL_KEY"] == ""
+    assert written["GNEWS_API_KEY"] == "gn-key"
+    assert written["NEWS_RSS_ENABLED"] == "false"
     assert not any(key.startswith("OPENAI") for key in written)
     assert written["FAVORITE_LEAGUES"] == "PL,PD"
     assert written["FAVORITE_TEAMS"] == "57,64"
