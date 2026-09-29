@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import flet as ft
+import ui_check
 
 from football_prognoz.config import Settings
 from football_prognoz.domain.match import Match, MatchStatus, Score
@@ -13,9 +14,10 @@ from football_prognoz.domain.prediction import (
     Scoreline,
 )
 from football_prognoz.domain.team import Competition
-from football_prognoz.services.filters import FixtureQuery, MatchStatusFilter, PageResult
-from football_prognoz.ui.views.fixtures import fixtures_view
-from football_prognoz.ui.views.leagues import leagues_view
+from football_prognoz.services.calendar import GroupMode
+from football_prognoz.services.leagues import LeagueGrouping, LeagueInfo, LeagueType, league_infos
+from football_prognoz.ui.views.calendar import CalendarPanel
+from football_prognoz.ui.views.leagues import LeaguesPanel
 from football_prognoz.ui.views.match_detail import match_detail_view
 from football_prognoz.ui.views.settings import SettingsForm, settings_view
 
@@ -90,140 +92,150 @@ def _forecast() -> MatchForecast:
     )
 
 
-def _leagues(
-    competitions: list[Competition] | None = None,
-    **kwargs: object,
-) -> ft.Control:
-    params: dict[str, object] = {
-        "loading": False,
-        "error": None,
-        "on_select": lambda _item: None,
-        "on_refresh": lambda: None,
-    }
-    params.update(kwargs)
-    return leagues_view(competitions or [_competition()], **params)  # type: ignore[arg-type]
-
-
-def _fixtures(matches: list[Match] | None = None, **kwargs: object) -> ft.Control:
-    params: dict[str, object] = {
-        "loading": False,
-        "error": None,
-        "on_open": lambda _item: None,
-        "on_back": lambda: None,
-        "on_refresh": lambda: None,
-    }
-    params.update(kwargs)
-    return fixtures_view("Premier League", matches or [_match()], **params)  # type: ignore[arg-type]
-
-
-def test_leagues_view_shows_filter_bar_when_on_query() -> None:
-    view = _leagues(on_query=lambda _q: None)
-    fields = [node for node in _walk(view) if isinstance(node, ft.TextField)]
-    assert fields
-    assert fields[0].label == "Поиск лиги"
-    assert "Поиск лиги" in _blob(view)
-
-
-def test_leagues_view_hides_filter_bar_without_on_query() -> None:
-    view = _leagues()
-    fields = [node for node in _walk(view) if isinstance(node, ft.TextField)]
-    assert fields == []
-    assert "Поиск лиги" not in _blob(view)
-
-
-def test_leagues_view_favorite_chips_only_when_has_favorites() -> None:
-    without = _leagues(on_query=lambda _q: None, has_favorites=False)
-    assert "Все лиги" not in _blob(without)
-    assert "Любимые" not in _blob(without)
-
-    clicks: list[bool] = []
-    with_fav = _leagues(
-        on_query=lambda _q: None,
-        has_favorites=True,
-        favorites_only=True,
-        on_favorites_only=clicks.append,
+def _infos(today: date = date(2026, 9, 29)) -> list[LeagueInfo]:
+    comps = [
+        Competition(2021, "PL", "Premier League", type="LEAGUE", area_name="England"),
+        Competition(2002, "BL1", "Bundesliga", type="LEAGUE", area_name="Germany"),
+        Competition(2001, "CL", "UEFA Champions League", type="CUP", area_name="Europe"),
+        Competition(2018, "EC", "European Championship", type="CUP", area_name="Europe"),
+    ]
+    return league_infos(
+        comps, {"PL": 12, "BL1": 9, "CL": 4}, ["PL", "BL1", "CL", "EC"], today=today
     )
-    blob = _blob(with_fav)
-    assert "Все лиги" in blob
-    assert "Любимые" in blob
 
-    chips = [
+
+def _league_panel(**kwargs: object) -> LeaguesPanel:
+    selected: list[Competition] = []
+    panel = LeaguesPanel(on_select=selected.append, on_refresh=lambda: None)
+    panel.set_data(_infos(), **kwargs)  # type: ignore[arg-type]
+    panel.selected = selected  # type: ignore[attr-defined]
+    return panel
+
+
+def test_leagues_panel_filters_by_text_area_type_and_activity() -> None:
+    panel = _league_panel()
+    blob = _blob(panel.control)
+    assert "Показано 4 из 4" in blob
+    assert "нет матчей в ближайшие 6 месяцев" in blob  # EC greyed with a note
+    panel.update_filter(query="bundes")
+    assert "Показано 1 из 4" in _blob(panel.control)
+    panel.update_filter(query="", area="Europe")
+    assert [i.code for _t, items in panel.visible_groups() for i in items] == ["CL", "EC"]
+    panel.update_filter(area="", league_type=LeagueType.CUP, active_only=True)
+    assert [i.code for _t, items in panel.visible_groups() for i in items] == ["CL"]
+    panel.update_filter(league_type=LeagueType.ALL, active_only=False, query="zzz")
+    assert "Под фильтр не подходит ни одна лига." in _blob(panel.control)
+
+
+def test_leagues_panel_groups_by_area_and_type_and_greys_idle_leagues() -> None:
+    panel = _league_panel(favorite_codes=["BL1"])
+    panel.set_grouping(LeagueGrouping.TYPE)
+    blob = _blob(panel.control)
+    assert "Кубок · 2" in blob and "Лига · 2" in blob
+    panel.set_grouping(LeagueGrouping.AREA)
+    titles = [title for title, _items in panel.visible_groups()]
+    assert titles == ["England", "Europe", "Germany"]
+    dimmed = [
         node
-        for node in _walk(with_fav)
-        if isinstance(node, ft.Container) and isinstance(node.content, ft.Text)
+        for node in _walk(panel.control)
+        if isinstance(node, ft.Container) and getattr(node, "opacity", 1.0) < 1.0
     ]
-    all_chip = next(chip for chip in chips if chip.content.value == "Все лиги")
-    fav_chip = next(chip for chip in chips if chip.content.value == "Любимые")
-    all_chip.on_click(None)
-    assert clicks == [False]
-    fav_chip.on_click(None)
-    assert clicks == [False, True]
+    assert len(dimmed) == 1  # only EC
+    assert "★ Любимые" in _blob(panel.control)
+    assert ui_check.layout_problems(panel.control) == []
 
 
-def test_leagues_view_renders_given_list_without_filtering() -> None:
-    competitions = [
-        _competition("PL", "Premier League"),
-        _competition("BL1", "Bundesliga"),
-    ]
-    view = _leagues(
-        competitions,
-        query="xyz-does-not-match",
-        on_query=lambda _q: None,
+def test_leagues_panel_area_dropdown_lists_known_areas() -> None:
+    panel = _league_panel()
+    keys = [option.key for option in panel._area.options]
+    assert keys[1:] == ["England", "Europe", "Germany"]
+
+
+def _day_match(mid: int, code: str, hour: int, home: str, away: str, home_id: int) -> Match:
+    return Match(
+        id=mid,
+        competition_code=code,
+        utc_date=datetime(2026, 10, 3, hour, 0, tzinfo=UTC),
+        status=MatchStatus.SCHEDULED,
+        matchday=7,
+        home_id=home_id,
+        home_name=home,
+        away_id=home_id + 1000,
+        away_name=away,
+        score=Score(None, None),
     )
-    blob = _blob(view)
-    assert "Premier League" in blob
-    assert "Bundesliga" in blob
 
 
-def test_fixtures_view_shows_filter_panel_when_on_query() -> None:
-    view = _fixtures(query=FixtureQuery(), on_query=lambda _q: None)
-    fields = [node for node in _walk(view) if isinstance(node, ft.TextField)]
-    labels = {field.label for field in fields}
-    assert "Команда" in labels
-    blob = _blob(view)
-    assert "Предстоящие" in blob
-    assert "Живые" in blob
-    assert "Сбросить" in blob
+def _calendar(**callbacks: object) -> CalendarPanel:
+    params: dict[str, object] = {
+        "on_day": lambda _d: None,
+        "on_open": lambda _m: None,
+        "on_refresh": lambda: None,
+        "on_clear_league": lambda: None,
+        "on_jump": lambda _s: None,
+        "today": lambda: date(2026, 10, 3),
+    }
+    params.update(callbacks)
+    return CalendarPanel(**params)  # type: ignore[arg-type]
 
 
-def test_fixtures_view_hides_filter_panel_without_on_query() -> None:
-    view = _fixtures()
-    fields = [node for node in _walk(view) if isinstance(node, ft.TextField)]
-    assert fields == []
-    assert "Команда" not in _blob(view)
-
-
-def test_fixtures_view_status_chips_call_on_query() -> None:
-    updates: list[FixtureQuery] = []
-    view = _fixtures(
-        query=FixtureQuery(),
-        on_query=updates.append,
+def test_calendar_panel_groups_day_by_league_and_team() -> None:
+    panel = _calendar()
+    panel.competitions = {
+        "PL": Competition(2021, "PL", "Premier League"),
+        "CL": Competition(2001, "CL", "UEFA Champions League"),
+    }
+    panel.favorite_team_ids = (57,)
+    panel.set_data(
+        [
+            _day_match(1, "PL", 12, "Arsenal", "Chelsea", 57),
+            _day_match(2, "CL", 19, "Real Madrid", "Inter", 86),
+        ]
     )
-    chips = [
-        node
-        for node in _walk(view)
-        if isinstance(node, ft.Container) and isinstance(node.content, ft.Text)
-    ]
-    live = next(chip for chip in chips if chip.content.value == "Живые")
-    live.on_click(None)
-    assert updates
-    assert updates[0].status is MatchStatusFilter.LIVE
-    assert updates[0].page == 0
+    blob = _blob(panel.control)
+    assert "Сегодня, 3 октября" in blob
+    assert "Любимые команды" in blob
+    assert "Premier League" in blob and "UEFA Champions League" in blob
+    panel.set_mode(GroupMode.TEAM)
+    assert "Real Madrid" in [g.title for g in panel.groups()]
+    panel.set_team_query("inter")
+    assert [m.id for g in panel.groups() for m in g.matches] == [2]
+    assert ui_check.layout_problems(panel.control) == []
 
 
-def test_fixtures_view_renders_page_slice_and_pager() -> None:
-    matches = [_match(), _match()]
-    page = PageResult(items=matches[:1], total=40, page=0, page_size=25)
-    view = _fixtures(
-        matches,
-        query=FixtureQuery(),
-        page_result=page,
-        on_query=lambda _q: None,
+def test_calendar_panel_day_paging_and_league_jumps() -> None:
+    days: list[date] = []
+    jumps: list[int] = []
+    cleared: list[bool] = []
+    panel = _calendar(
+        on_day=days.append, on_jump=jumps.append, on_clear_league=lambda: cleared.append(True)
     )
-    blob = _blob(view)
-    assert "1–25 из 40" in blob or "1–1 из 40" in blob
-    assert "Назад" in blob
-    assert "Вперёд" in blob
+    panel.shift_day(1)
+    panel.go_to(date(2026, 10, 1))
+    assert days == [date(2026, 10, 4), date(2026, 10, 1)]
+    assert "В этот день матчей нет." in _blob(panel.control)
+    panel.set_league(
+        Competition(2021, "PL", "Premier League"), [date(2026, 9, 27), date(2026, 10, 5)]
+    )
+    blob = _blob(panel.control)
+    assert "След. игровой день →" in blob and "← Пред. игровой день" in blob
+    buttons = {
+        node.content: node
+        for node in _walk(panel.control)
+        if isinstance(node, ft.TextButton) and isinstance(node.content, str)
+    }
+    buttons["След. игровой день →"].on_click(None)
+    assert jumps == [1]
+
+
+def test_calendar_panel_shows_loading_and_error_inline() -> None:
+    panel = _calendar()
+    panel.set_data([], loading=True)
+    assert panel._spinner_box.visible is True
+    assert "Загружаем матчи дня…" in _blob(panel.control)
+    panel.set_data([], loading=False, error="Нет связи с football-data.org")
+    assert panel._spinner_box.visible is False
+    assert "Нет связи с football-data.org" in _blob(panel.control)
 
 
 def test_match_detail_hides_ai_block_when_disabled() -> None:
@@ -460,3 +472,55 @@ def test_calibration_lines_format() -> None:
     assert "Точность исхода: 52% · Brier: 0.601 · log-loss: 1.002" in lines[1]
     assert "победа хозяев — 60% из 30" in lines[2]
     assert "Вероятность 40–50%: в среднем 45%, сбылось 43% (n=60)" in lines[3]
+
+
+def test_settings_favourite_leagues_combobox_greys_idle_leagues_and_groups_teams() -> None:
+    from football_prognoz.domain.team import Team
+    from football_prognoz.ui.views.settings import HEADER_PREFIX
+
+    infos = _infos()
+    pl, cl = infos[0].competition, infos[2].competition
+    form = SettingsForm.from_settings(
+        Settings(football_data_api_key="k", favorite_leagues="PL", favorite_teams="57"),
+        league_infos=infos,
+        teams_by_league=[
+            (pl, [Team(57, "Arsenal"), Team(61, "Chelsea")]),
+            (cl, [Team(57, "Arsenal"), Team(86, "Real Madrid")]),
+        ],
+    )
+    saved: list[dict] = []
+    view = settings_view(
+        form,
+        on_save=saved.append,
+        on_test=lambda: None,
+        on_clear_cache=lambda: None,
+        on_refresh_counts=lambda: None,
+    )
+    dropdowns = [node for node in _walk(view) if isinstance(node, ft.Dropdown)]
+    leagues, teams = dropdowns[0], dropdowns[1]
+    by_key = {option.key: option for option in leagues.options}
+    assert set(by_key) == {"PL", "BL1", "CL", "EC"}
+    assert by_key["EC"].disabled is True and by_key["PL"].disabled is False
+    team_keys = [option.key for option in teams.options]
+    assert team_keys == [f"{HEADER_PREFIX}PL", "57", "61"]  # only the chosen league
+    assert teams.options[0].disabled is True  # league header
+    assert "Обновить счётчики матчей" in _blob(view)
+    leagues.value = "EC"
+    leagues.on_select(None)  # idle league cannot be added
+    leagues.value = "CL"
+    leagues.on_select(None)
+    team_keys = [option.key for option in teams.options]
+    assert f"{HEADER_PREFIX}CL" in team_keys and "86" in team_keys
+    assert team_keys.count("57") == 1  # a club in two leagues is listed once
+    save = next(node for node in _walk(view) if isinstance(node, ft.FilledButton))
+    save.on_click(None)
+    assert saved[0]["favorite_leagues"] == "PL,CL"
+    assert saved[0]["favorite_teams"] == "57"
+
+
+def test_settings_view_shows_gate_notice() -> None:
+    form = SettingsForm.from_settings(Settings(), gate_notice="Чтобы начать, укажите ключ")
+    view = settings_view(
+        form, on_save=lambda _p: None, on_test=lambda: None, on_clear_cache=lambda: None
+    )
+    assert "Чтобы начать, укажите ключ" in _blob(view)

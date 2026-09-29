@@ -167,16 +167,50 @@ def test_splash_view_indeterminate_and_determinate() -> None:
     assert box.bgcolor == BG
     assert box.alignment == ft.Alignment.CENTER
     column = box.content
-    mark, title, subtitle, ring, status = column.controls
+    ball, title, subtitle, bar_box, status = column.controls
     assert title.value == "Football Prognoz"
     assert title.color == FG
     assert subtitle.value == "Загрузка данных…"
-    assert ring.value is None
-    assert ring.color == ACCENT
+    assert bar_box.content.value is None
+    assert bar_box.content.color == ACCENT
     assert status.value == "Лиги"
+    assert boot.data is ball and ball.animate_rotation is not None  # spinning ball
     filled = splash_view("Матчи", fraction=0.4)
     filled_box = filled.content if hasattr(filled, "content") else filled
-    assert filled_box.content.controls[3].value == 0.4
+    assert filled_box.content.controls[3].content.value == 0.4
     overflow = splash_view("Матчи", fraction=1.5)
     overflow_box = overflow.content if hasattr(overflow, "content") else overflow
-    assert overflow_box.content.controls[3].value is None
+    assert overflow_box.content.controls[3].content.value is None
+
+
+def test_run_background_key_cancels_only_same_kind() -> None:
+    page = FakePage()
+    run_background(page, lambda: 1, lambda _r: None, lambda _e: None, key="calendar")
+    run_background(page, lambda: 2, lambda _r: None, lambda _e: None, key="forecast")
+    calendar_handle = page.scheduled[0][3]
+    forecast_handle = page.scheduled[1][3]
+    assert calendar_handle.cancelled is False
+    run_background(page, lambda: 3, lambda _r: None, lambda _e: None, key="calendar")
+    assert calendar_handle.cancelled is True
+    assert forecast_handle.cancelled is False
+
+
+def test_job_generations_mark_old_results_stale() -> None:
+    from football_prognoz.ui.runtime import Job
+
+    job = Job()
+    first, first_cancel = job.start()
+    second, _second_cancel = job.start()
+    assert first_cancel.is_set()  # starting a new job cancels the old one
+    assert not job.is_current(first) and job.is_current(second)
+    job.finish(second)
+    assert not job.running
+    job.start()
+    job.stop()
+    assert not job.running
+
+
+def test_safe_update_skips_unmounted_controls() -> None:
+    from football_prognoz.ui.runtime import safe_update
+
+    assert safe_update(ft.Text("x")) is False

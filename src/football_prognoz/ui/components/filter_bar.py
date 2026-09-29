@@ -11,7 +11,7 @@ from football_prognoz.ui.theme import ACCENT, BORDER, FG, SURFACE, glass_border
 _ON_ACCENT = "#0F172A"
 
 
-def _chip(label: str, selected: bool, on_click: Callable[[], None]) -> ft.Control:
+def chip(label: str, selected: bool, on_click: Callable[[], None]) -> ft.Control:
     return ft.Container(
         content=ft.Text(
             label,
@@ -58,7 +58,7 @@ def filter_bar(
     if chips:
         body.append(
             ft.Row(
-                [_chip(label, selected, callback) for label, selected, callback in chips],
+                [chip(label, selected, callback) for label, selected, callback in chips],
                 spacing=6,
                 run_spacing=6,
                 wrap=True,

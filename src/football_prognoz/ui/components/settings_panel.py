@@ -12,7 +12,8 @@ from football_prognoz.config import (
     OLLAMA_CLOUD_HOST,
     Settings,
 )
-from football_prognoz.domain.team import Team
+from football_prognoz.domain.team import Competition, Team
+from football_prognoz.services.leagues import LeagueInfo
 from football_prognoz.ui.theme import ACCENT, BREAKPOINT_MEDIUM, CARD, FG, MUTED, glass_border
 
 
@@ -32,6 +33,10 @@ class SettingsForm:
     favorite_leagues: str = ""
     favorite_teams: str = ""
     team_choices: tuple[Team, ...] = field(default_factory=tuple)
+    league_infos: tuple[LeagueInfo, ...] = field(default_factory=tuple)
+    teams_by_league: tuple[tuple[Competition, tuple[Team, ...]], ...] = field(default_factory=tuple)
+    gate_notice: str | None = None
+    counting: str | None = None  # progress text while league counts refresh
     prefetch_wait_on_start: bool = False
     show_ai_block: bool = True
     compact_fixtures: bool = False
@@ -49,6 +54,11 @@ class SettingsForm:
         status: str | None = None,
         error: str | None = None,
         saving: bool = False,
+        league_infos: tuple[LeagueInfo, ...] | list[LeagueInfo] = (),
+        teams_by_league: tuple[tuple[Competition, tuple[Team, ...]], ...]
+        | list[tuple[Competition, list[Team]]] = (),
+        gate_notice: str | None = None,
+        counting: str | None = None,
     ) -> SettingsForm:
         return cls(
             football_data_api_key=settings.football_data_api_key,
@@ -63,6 +73,10 @@ class SettingsForm:
             favorite_leagues=settings.favorite_leagues,
             favorite_teams=settings.favorite_teams,
             team_choices=tuple(team_choices),
+            league_infos=tuple(league_infos),
+            teams_by_league=tuple((comp, tuple(teams)) for comp, teams in teams_by_league),
+            gate_notice=gate_notice,
+            counting=counting,
             prefetch_wait_on_start=settings.prefetch_wait_on_start,
             show_ai_block=settings.show_ai_block,
             compact_fixtures=settings.compact_fixtures,

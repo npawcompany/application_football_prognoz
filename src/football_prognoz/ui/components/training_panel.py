@@ -41,7 +41,7 @@ def _pct(value: float | None) -> str:
 
 
 def calibration_lines(report: CalibrationReport) -> tuple[str, ...]:
-    """Short Russian quality summary for the panel (VKR §3.3)."""
+    """Short Russian quality summary for the panel."""
     if report.evaluated == 0:
         return ("Оценка качества: пока нет завершённых матчей с прогнозом, сделанным до начала.",)
     lines = [
@@ -116,7 +116,7 @@ def training_panel(
         buttons.append(
             with_cursor(
                 ft.OutlinedButton(
-                    "Экспорт в CSV (ВКР §3.3)",
+                    "Сохранить историю в CSV…",
                     disabled=state.running,
                     on_click=lambda _e: on_export(),
                 ),

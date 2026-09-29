@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
-from dataclasses import replace
-from datetime import UTC, datetime
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from datetime import UTC, date, datetime
+from pathlib import Path
 
 import flet as ft
 
@@ -19,14 +22,11 @@ from football_prognoz.config import (
 from football_prognoz.domain.match import Match
 from football_prognoz.domain.prediction import MatchForecast
 from football_prognoz.domain.team import Competition, Team
+from football_prognoz.services.calendar import local_tz, match_days, nearest_day
 from football_prognoz.services.factory import build_service
-from football_prognoz.services.filters import (
-    FixtureQuery,
-    MatchStatusFilter,
-    apply_fixture_query,
-    filter_competitions,
-)
-from football_prognoz.services.matches import MatchService
+from football_prognoz.services.leagues import LeagueInfo, league_infos
+from football_prognoz.services.matches import Cancelled, MatchService
+from football_prognoz.services.startup import SPLASH_MIN_SECONDS, GateState, KeyGate, SplashTimer
 from football_prognoz.ui.components.ai_analysis import (
     AI_ERROR,
     AI_LOADING,
@@ -34,7 +34,7 @@ from football_prognoz.ui.components.ai_analysis import (
     AI_READY,
 )
 from football_prognoz.ui.components.settings_panel import SettingsForm
-from football_prognoz.ui.components.splash import splash_view
+from football_prognoz.ui.components.splash import splash_view, start_spin
 from football_prognoz.ui.components.training_panel import (
     TrainingState,
     calibration_lines,
@@ -43,11 +43,14 @@ from football_prognoz.ui.components.training_panel import (
 from football_prognoz.ui.motion import PAGE_CURSOR, with_cursor
 from football_prognoz.ui.notify import notify_user
 from football_prognoz.ui.runtime import (
+    Job,
     debounce,
     info_banner,
+    is_mounted,
     post_to_ui,
     run_background,
     run_detached,
+    safe_update,
 )
 from football_prognoz.ui.theme import (
     BG,
@@ -57,13 +60,14 @@ from football_prognoz.ui.theme import (
     use_split,
     window_width,
 )
-from football_prognoz.ui.views.fixtures import fixtures_view
-from football_prognoz.ui.views.leagues import leagues_view
+from football_prognoz.ui.views.calendar import CalendarPanel
+from football_prognoz.ui.views.leagues import LeaguesPanel
 from football_prognoz.ui.views.match_detail import match_detail_view
 from football_prognoz.ui.views.settings import settings_view
 
 SECTIONS = ("leagues", "fixtures", "match", "settings")
 NAV_INDEX = {name: index for index, name in enumerate(SECTIONS)}
+FORECAST_SECTIONS = frozenset({"fixtures", "match"})
 
 _TRUE = frozenset({"1", "true", "yes", "on"})
 
@@ -81,17 +85,34 @@ def _env_text(value: str | bool | None, default: str = "") -> str:
     return text if text else default
 
 
+@dataclass
+class BootResult:
+    competitions: list[Competition]
+    infos: list[LeagueInfo] = field(default_factory=list)
+    rejected: bool = False
+    error: str | None = None
+
+
 __all__ = ["FootballApp", "build_service", "start_ui"]
 
 
 class FootballApp:
-    def __init__(self, page: ft.Page, service: MatchService, settings: Settings) -> None:
+    def __init__(
+        self,
+        page: ft.Page,
+        service: MatchService,
+        settings: Settings,
+        *,
+        splash_min_seconds: float = SPLASH_MIN_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+        today: Callable[[], date] = date.today,
+    ) -> None:
         self.page = page
         self.service = service
         self.settings = settings
-        self.section = "leagues"
+        self.section = "fixtures"
         self.competitions: list[Competition] = []
-        self.matches: list[Match] = []
+        self.league_infos: list[LeagueInfo] = []
         self.forecast: MatchForecast | None = None
         self.league: Competition | None = None
         self.selected_match_id: int | None = None
@@ -100,16 +121,42 @@ class FootballApp:
         self.error: str | None = None
         self.status: str | None = None
         self.booting = False
-        self.league_query = ""
-        self.favorites_only = False
-        self.fixture_query = FixtureQuery()
         self.ai_state: str | None = None
         self.ai_error: str | None = None
         self.training = TrainingState()
+        self.counting: str | None = None
+        self.calendar_collapsed = False
+        self.gate = KeyGate.from_settings(settings)
+        self._splash_min = splash_min_seconds
+        self._clock = clock
+        self._today = today
+        self.splash = SplashTimer(splash_min_seconds, clock)
+        self._boot_result: BootResult | None = None
+        self._ai_job = Job()
+        self._day_job = Job()
+        self._league_job = Job()
+        self._ai_interrupted = False
         self._training_cancel: threading.Event | None = None
         self._training_painted_at = 0.0
+        self._teams_by_league: list[tuple[Competition, list[Team]]] = []
+        self._picker: ft.FilePicker | None = None
         self._splash_message = "Загружаем данные…"
         self._splash_fraction: float | None = None
+        self._splash_control: ft.Control | None = None
+        self._training_slot = ft.Container()
+        self.leagues_panel = LeaguesPanel(
+            on_select=self._select_league,
+            on_refresh=lambda: self._load_leagues(force=True),
+        )
+        self.calendar = CalendarPanel(
+            on_day=lambda _day: self._load_day(),
+            on_open=self._open_match,
+            on_refresh=lambda: self._load_day(force=True),
+            on_clear_league=self._clear_league,
+            on_jump=self._jump_league_day,
+            on_collapse=self._toggle_calendar,
+            today=today,
+        )
         self._pane = ft.Container(expand=True, padding=BODY_PADDING, bgcolor=BG)
         self.body = with_cursor(
             ft.Container(expand=True, padding=0, bgcolor=BG),
@@ -137,29 +184,16 @@ class FootballApp:
         self._rail_mode: bool | None = None
         self._split_mode: bool | None = None
         self._build_shell()
-        if not settings.has_football_key:
-            self.section = "settings"
-            self.status = "Введите ключ football-data.org, чтобы загрузить лиги."
-            self._render_panes()
-            return
         self._start_boot()
 
-    @property
-    def team_query(self) -> str:
-        return self.fixture_query.team_query
-
-    @team_query.setter
-    def team_query(self, value: str) -> None:
-        self.fixture_query = replace(self.fixture_query, team_query=value, page=0)
+    # --- compatibility helpers --------------------------------------------------------
 
     @property
-    def upcoming_only(self) -> bool:
-        return self.fixture_query.status is MatchStatusFilter.UPCOMING
+    def matches(self) -> list[Match]:
+        """Matches of the calendar day currently shown."""
+        return self.calendar.matches
 
-    @upcoming_only.setter
-    def upcoming_only(self, value: bool) -> None:
-        status = MatchStatusFilter.UPCOMING if value else MatchStatusFilter.ALL
-        self.fixture_query = replace(self.fixture_query, status=status, page=0)
+    # --- shell / navigation ------------------------------------------------------------
 
     def _build_shell(self) -> None:
         page = self.page
@@ -215,20 +249,31 @@ class FootballApp:
         self._render_panes()
 
     def _sync_nav_selection(self) -> None:
+        """Keep the rail/bar highlight in sync, also for programmatic navigation."""
         index = self._nav_index()
-        if self._rail is not None:
-            self._rail.selected_index = index
-        if self._nav_bar is not None:
-            self._nav_bar.selected_index = index
+        for nav in (self._rail, self._nav_bar):
+            if nav is None or nav.selected_index == index:
+                continue
+            nav.selected_index = index
+            safe_update(nav)
 
     def _on_nav(self, event: ft.ControlEvent) -> None:
         index = self._nav_event_index(event)
-        self.section = SECTIONS[index] if 0 <= index < len(SECTIONS) else "leagues"
+        wanted = SECTIONS[index] if 0 <= index < len(SECTIONS) else "fixtures"
+        if self.booting:
+            # The splash stays until loading is done; the gate decides afterwards.
+            self._sync_nav_selection()
+            self._paint_nav()
+            return
         self.error = None
-        if self.section == "leagues" and not self.competitions and not self.booting:
+        self._set_section(wanted)
+        if self.section == "leagues" and not self.league_infos:
             self._load_leagues()
             return
         self._render_panes()
+
+    def _paint_nav(self) -> None:
+        safe_update(*(c for c in (self._rail, self._nav_bar) if c is not None))
 
     def _nav_event_index(self, event: ft.ControlEvent) -> int:
         data = getattr(event, "data", None)
@@ -246,8 +291,26 @@ class FootballApp:
                 pass
         return self._nav_index()
 
+    def _set_section(self, section: str) -> None:
+        """Every navigation goes through the key gate and the AI-job lifecycle."""
+        target = self.gate.target(section)
+        if target != section:
+            self._notify(self.gate.notice(), kind="info")
+        leaving_forecast = self.section in FORECAST_SECTIONS and target not in FORECAST_SECTIONS
+        self.section = target
+        if leaving_forecast and self._ai_job.running:
+            self._ai_job.stop()
+            self._ai_interrupted = True
+            if self.ai_state == AI_LOADING:
+                self.ai_state = None
+        if target in FORECAST_SECTIONS and self._ai_interrupted and self.forecast is not None:
+            self._ai_interrupted = False
+            self._start_enrichment(self.forecast, repaint=False)
+        if target == "settings":
+            self._load_settings_choices()
+
     def _set_nav(self, section: str) -> None:
-        self.section = section
+        self._set_section(section)
 
     def _nav_index(self) -> int:
         return NAV_INDEX.get(self.section, 0)
@@ -287,12 +350,7 @@ class FootballApp:
             on_change=self._on_nav,
         )
 
-    def _split(self, master: ft.Control, detail: ft.Control, *, master_flex: int = 3) -> ft.Control:
-        self._left_slot.expand = master_flex
-        self._right_slot.expand = 2
-        self._left_slot.content = master
-        self._right_slot.content = detail
-        return self._split_row
+    # --- painting ----------------------------------------------------------------------
 
     def _paint(self, *controls: ft.Control) -> None:
         """Update only the given blocks when they are already on the page."""
@@ -309,20 +367,29 @@ class FootballApp:
         except Exception:  # noqa: BLE001 — first mount still needs a full page update
             self.page.update()
 
+    def _sync_panels(self, width: int) -> None:
+        favorites = tuple(self.settings.favorite_codes())
+        self.calendar.window_width = width
+        self.calendar.compact = self.settings.compact_fixtures
+        self.calendar.favorite_codes = favorites
+        self.calendar.favorite_team_ids = tuple(self.settings.favorite_team_ids())
+        self.calendar.competitions = {item.code: item for item in self.competitions}
+        self.leagues_panel.window_width = width
+
     def _render_panes(self, *, parts: str = "all") -> None:
         width = window_width(self.page)
         split = use_split(width)
-        if self.booting and self.section != "settings":
-            splash = splash_view(
-                self._splash_message,
-                fraction=self._splash_fraction,
-            )
+        self._sync_panels(width)
+        if self.booting:
+            splash = splash_view(self._splash_message, fraction=self._splash_fraction)
+            self._splash_control = splash
             self._pane.content = splash
             self._pane_kind = "splash"
             self._sync_nav_selection()
             self._paint(self._pane)
+            start_spin(splash)
             return
-        if self.section == "settings" or self.section == "match" or not split:
+        if self.section in ("settings", "match") or not split:
             self._pane.content = self._section_body(width, split=False)
             self._pane_kind = "single"
             self._sync_nav_selection()
@@ -331,30 +398,28 @@ class FootballApp:
         left: ft.Control | None = None
         right: ft.Control | None = None
         if self.section == "leagues":
+            self.calendar.embedded = True
+            self.calendar.show_disclaimer = True
+            self.calendar.collapsible = False
             if parts in {"all", "left"}:
-                left = self._leagues_pane(width)
+                left = self.leagues_panel.control
             if parts in {"all", "right"}:
-                right = self._fixtures_pane(
-                    width,
-                    embedded=True,
-                    compact_grid=False,
-                    show_disclaimer=True,
-                )
+                right = self.calendar.control
             self._left_slot.expand = 3
+            self._right_slot.expand = 2
         else:
+            self.calendar.embedded = True
+            self.calendar.show_disclaimer = False
+            self.calendar.collapsible = True
             if parts in {"all", "left"}:
-                left = self._fixtures_pane(
-                    width,
-                    embedded=True,
-                    compact_grid=True,
-                    show_disclaimer=False,
-                )
+                left = self._collapsed_rail() if self.calendar_collapsed else self.calendar.control
             if parts in {"all", "right"}:
                 right = self._forecast_pane(width, embedded=True)
-            self._left_slot.expand = 2
-        self._right_slot.expand = 2
+            self._left_slot.expand = None if self.calendar_collapsed else 1
+            self._right_slot.expand = 1
         if left is not None:
             self._left_slot.content = left
+            self.calendar.refresh()
         if right is not None:
             self._right_slot.content = right
         switched = self._pane.content is not self._split_row
@@ -372,22 +437,31 @@ class FootballApp:
         ]
         self._paint(*dirty)
 
-    def _team_choices(self) -> tuple[Team, ...]:
-        getter = getattr(self.service, "cached_teams", None)
-        if not callable(getter):
-            return ()
-        try:
-            return tuple(getter())
-        except Exception:  # noqa: BLE001 — settings must open even if cache is empty
-            return ()
+    def _collapsed_rail(self) -> ft.Control:
+        return ft.Container(
+            content=ft.Column(
+                [
+                    with_cursor(
+                        ft.IconButton(
+                            icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_RIGHT,
+                            tooltip="Показать список матчей",
+                            on_click=lambda _e: self._toggle_calendar(),
+                        ),
+                        interactive=True,
+                    ),
+                    ft.Icon(ft.Icons.CALENDAR_MONTH, size=18),
+                ],
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            width=48,
+        )
 
-    def _notify(
-        self,
-        message: str,
-        *,
-        kind: str = "info",
-        alert: bool = False,
-    ) -> None:
+    def _toggle_calendar(self) -> None:
+        self.calendar_collapsed = not self.calendar_collapsed
+        self._render_panes()
+
+    def _notify(self, message: str, *, kind: str = "info", alert: bool = False) -> None:
         notify_user(
             self.page,
             message,
@@ -409,94 +483,16 @@ class FootballApp:
         }.get(self.section)
         return self.error if section_kind == kind else None
 
-    def _filtered_competitions(self) -> list[Competition]:
-        items = filter_competitions(self.competitions, self.league_query)
-        favorites = {code.upper() for code in self.settings.favorite_codes()}
-        if self.favorites_only:
-            items = [item for item in items if item.code.upper() in favorites]
-        items.sort(key=lambda item: 0 if item.code.upper() in favorites else 1)
-        return items
-
-    def _fixture_page(self):
-        return apply_fixture_query(
-            self.matches,
-            self.fixture_query,
-            now=datetime.now(UTC),
-        )
-
-    def _filtered_matches(self) -> list[Match]:
-        return list(self._fixture_page().items)
-
-    def _on_league_query(self, query: str) -> None:
-        self.league_query = query
-        debounce(self.page, "league_query", 0.2, self._render_panes)
-
-    def _on_favorites_only(self, value: bool) -> None:
-        self.favorites_only = value
-        self._render_panes()
-
-    def _on_fixture_query(self, query: FixtureQuery) -> None:
-        self.fixture_query = query
-        if self._pane_kind == "split" and self.section == "leagues":
-            debounce(self.page, "fixture_query", 0.2, lambda: self._render_panes(parts="right"))
-            return
-        if self._pane_kind == "split" and self.section == "fixtures":
-            debounce(self.page, "fixture_query", 0.2, lambda: self._render_panes(parts="left"))
-            return
-        debounce(self.page, "fixture_query", 0.2, self._render_panes)
-
-    def _leagues_pane(self, width: int) -> ft.Control:
-        return leagues_view(
-            self._filtered_competitions(),
-            loading=self.loading and self.busy == "leagues",
-            error=self._error_for("leagues"),
-            on_select=self._select_league,
-            on_refresh=lambda: self._load_leagues(force=True),
-            window_width=width,
-            selected_code=self.league.code if self.league else None,
-            query=self.league_query,
-            on_query=self._on_league_query,
-            favorites_only=self.favorites_only,
-            on_favorites_only=self._on_favorites_only,
-            has_favorites=bool(self.settings.favorite_codes()),
-        )
-
-    def _fixtures_pane(
-        self,
-        width: int,
-        *,
-        embedded: bool,
-        compact_grid: bool,
-        show_disclaimer: bool,
-    ) -> ft.Control:
-        if self.league is None and not (self.loading and self.busy == "fixtures"):
-            return info_banner(
-                "Выберите лигу, чтобы открыть календарь.",
-                action_hint="Откройте вкладку Лиги",
-            )
-        name = self.league.name if self.league else "Календарь"
-        page = self._fixture_page()
-        return fixtures_view(
-            name,
-            page.items,
-            loading=self.loading and self.busy == "fixtures",
-            error=self._error_for("fixtures"),
-            on_open=self._open_match,
-            on_back=lambda: self._goto("leagues"),
-            on_refresh=lambda: self._load_fixtures(force=True),
-            league_emblem=self.league.emblem if self.league else None,
-            league_code=self.league.code if self.league else None,
-            window_width=width,
-            embedded=embedded,
-            compact_grid=self.settings.compact_fixtures or compact_grid,
-            selected_match_id=self.selected_match_id,
-            show_disclaimer=show_disclaimer,
-            query=self.fixture_query,
-            page_result=page,
-            on_query=self._on_fixture_query,
-        )
-
     def _forecast_pane(self, width: int, *, embedded: bool) -> ft.Control:
+        if self.forecast is None and not (self.loading and self.busy == "forecast"):
+            return ft.Container(
+                content=info_banner(
+                    "Выберите матч в календаре, чтобы увидеть прогноз.",
+                    action_hint="Календарь слева" if embedded else "Откройте вкладку Календарь",
+                ),
+                alignment=ft.Alignment.TOP_CENTER,
+                expand=True,
+            )
         return match_detail_view(
             self.forecast,
             loading=self.loading and self.busy == "forecast",
@@ -510,6 +506,8 @@ class FootballApp:
         )
 
     def _settings_pane(self, width: int) -> ft.Control:
+        self._training_slot.content = self._training_block(width)
+        gate_notice = self.gate.notice() if self.gate.locked else None
         return settings_view(
             SettingsForm.from_settings(
                 self.settings,
@@ -517,51 +515,37 @@ class FootballApp:
                 status=self.status,
                 error=self._error_for("settings"),
                 saving=self.loading and self.busy == "settings",
+                league_infos=self.league_infos,
+                teams_by_league=self._teams_by_league,
+                gate_notice=gate_notice,
+                counting=self.counting,
             ),
             on_save=self._save_settings,
             on_test=self._test_connection,
             on_clear_cache=self._clear_cache,
             window_width=width,
-            training=training_panel(
-                self.training,
-                on_collect=self._start_training,
-                on_cancel=self._cancel_training,
-                on_export=self._export_history,
-                window_width=width,
-            ),
+            training=self._training_slot,
+            on_refresh_counts=self._refresh_counts,
+        )
+
+    def _training_block(self, width: int) -> ft.Control:
+        return training_panel(
+            self.training,
+            on_collect=self._start_training,
+            on_cancel=self._cancel_training,
+            on_export=self._export_history,
+            window_width=width,
         )
 
     def _section_body(self, width: int, split: bool) -> ft.Control:
         if self.section == "leagues":
-            if split:
-                return self._split(
-                    self._leagues_pane(width),
-                    self._fixtures_pane(
-                        width,
-                        embedded=True,
-                        compact_grid=False,
-                        show_disclaimer=True,
-                    ),
-                )
-            return self._leagues_pane(width)
+            return self.leagues_panel.control
         if self.section == "fixtures":
-            if split:
-                return self._split(
-                    self._fixtures_pane(
-                        width,
-                        embedded=True,
-                        compact_grid=True,
-                        show_disclaimer=False,
-                    ),
-                    self._forecast_pane(width, embedded=True),
-                    master_flex=2,
-                )
-            return self._fixtures_pane(
-                width,
-                embedded=False,
-                compact_grid=False,
-                show_disclaimer=True,
-            )
+            self.calendar.embedded = False
+            self.calendar.show_disclaimer = True
+            self.calendar.collapsible = False
+            self.calendar.refresh()
+            return self.calendar.control
         if self.section == "match":
             return self._forecast_pane(width, embedded=False)
         return self._settings_pane(width)
@@ -576,8 +560,25 @@ class FootballApp:
 
     def _goto(self, section: str) -> None:
         self.error = None
-        self._set_nav(section)
+        self._set_section(section)
         self._render_panes()
+
+    def _after(self, delay_s: float, callback: Callable[[], None]) -> None:
+        runner = getattr(self.page, "run_task", None)
+        if callable(runner):
+
+            async def later() -> None:
+                await asyncio.sleep(delay_s)
+                callback()
+                self.page.update()
+
+            runner(later)
+            return
+        timer = threading.Timer(delay_s, callback)
+        timer.daemon = True
+        timer.start()
+
+    # --- boot: splash (>= 3 s and until loading ends) -> key gate ------------------------
 
     def _set_splash(self, message: str, fraction: float | None = None) -> None:
         self._splash_message = message
@@ -586,134 +587,254 @@ class FootballApp:
             self._render_panes()
 
     def _post_splash(self, message: str, fraction: float | None = None) -> None:
-        def apply() -> None:
-            self._set_splash(message, fraction)
-
-        runner = getattr(self.page, "run_task", None)
-        if callable(runner):
-
-            async def tick() -> None:
-                apply()
-
-            runner(tick)
-            return
-        apply()
+        post_to_ui(self.page, lambda: self._set_splash(message, fraction))
 
     def _start_boot(self) -> None:
         self.booting = True
-        self._set_splash("Загружаем данные…")
+        self.splash = SplashTimer(self._splash_min, self._clock)
         self.competitions = self.service.cached_competitions()
-        self._set_splash("Обновляем список лиг…")
-        run_background(
-            self.page,
-            self.service.bootstrap,
-            self._on_bootstrap,
-            self._on_fail,
-            message=None,
-            cancel_previous=False,
-        )
+        self._set_splash("Загружаем данные…")
+        service = self.service
+        has_key = not self.gate.missing
+        prefetch = self.settings.prefetch_wait_on_start
 
-    def _finish_boot(self) -> None:
-        self.booting = False
-        self.loading = False
-        self.busy = None
-        self._render_panes()
-        self._notify("Приложение готово.", kind="success")
-
-    def _on_bootstrap(self, items: list[Competition]) -> None:
-        self.competitions = list(items)
-        if self.settings.prefetch_wait_on_start and items:
-            self._prefetch_all(items)
-            return
-        self._finish_boot()
-
-    def _prefetch_all(self, items: list[Competition]) -> None:
-        total = len(items)
-        self._set_splash(f"Лига 1/{total}: {items[0].code}", 0.0)
-
-        def work() -> None:
-            for index, competition in enumerate(items, start=1):
-                self._post_splash(
-                    f"Лига {index}/{total}: {competition.code}",
-                    (index - 1) / total if total else None,
-                )
-                self.service.prefetch_competition(competition.code)
+        def work() -> BootResult:
+            if not has_key:
+                # No network without the required key: cached data only.
+                items = service.cached_competitions()
+                return BootResult(items, self._infos_for(service, items))
+            items = service.bootstrap()
+            if prefetch and items:
+                total = len(items)
+                for index, competition in enumerate(items, start=1):
+                    self._post_splash(
+                        f"Лига {index}/{total}: {competition.code}", (index - 1) / total
+                    )
+                    service.prefetch_competition(competition.code)
+            return BootResult(
+                items,
+                self._infos_for(service, items),
+                rejected=bool(getattr(service, "key_rejected", False)),
+            )
 
         run_background(
             self.page,
             work,
-            lambda _result: self._finish_boot(),
-            self._on_fail,
+            self._on_bootstrap,
+            self._on_boot_fail,
             message=None,
             cancel_previous=False,
+            key="boot",
+        )
+
+    @staticmethod
+    def _infos_for(service: MatchService, items: list[Competition]) -> list[LeagueInfo]:
+        getter = getattr(service, "league_infos", None)
+        if callable(getter):
+            try:
+                return list(getter())
+            except Exception:  # noqa: BLE001 — availability notes are optional
+                pass
+        return league_infos(items, {}, (), today=date.today())
+
+    def _on_bootstrap(self, result: BootResult) -> None:
+        self._boot_result = result
+        self.competitions = list(result.competitions)
+        self.league_infos = list(result.infos)
+        self.splash.mark_loaded()
+        remaining = self.splash.remaining()
+        if remaining > 0:
+            self._after(remaining, self._finish_boot)
+            return
+        self._finish_boot()
+
+    def _on_boot_fail(self, message: str) -> None:
+        self._on_bootstrap(
+            BootResult(self.service.cached_competitions(), self.league_infos, error=message)
+        )
+
+    def _finish_boot(self) -> None:
+        if not self.booting:
+            return
+        self.booting = False
+        self.loading = False
+        self.busy = None
+        result = self._boot_result
+        rejected = bool(result and result.rejected)
+        self.gate.evaluate(self.settings, key_rejected=rejected)
+        self._refresh_leagues_panel()
+        if self.gate.locked:
+            self.section = "settings"
+            self.status = None  # the lock banner on top of Settings explains it
+            self._load_settings_choices()
+            self._render_panes()
+            self._notify(self.gate.notice(), kind="info")
+            return
+        if result and result.error:
+            self.error = result.error
+        self._render_panes()
+        self._notify("Приложение готово.", kind="success")
+        self._load_day()
+
+    # --- leagues -------------------------------------------------------------------------
+
+    def _refresh_leagues_panel(self) -> None:
+        self.leagues_panel.set_data(
+            self.league_infos,
+            favorite_codes=self.settings.favorite_codes(),
+            selected_code=self.league.code if self.league else None,
+            loading=self.loading and self.busy == "leagues",
+            error=self._error_for("leagues"),
         )
 
     def _load_leagues(self, force: bool = False) -> None:
         self.loading = True
         self.busy = "leagues"
         self.error = None
-        self._set_nav("leagues")
+        self._set_section("leagues")
+        self._refresh_leagues_panel()
         self._render_panes()
+        service = self.service
 
-        def work() -> list[Competition]:
-            return self.service.list_competitions(force=force)
+        def work() -> tuple[list[Competition], list[LeagueInfo]]:
+            items = service.list_competitions(force=force)
+            return items, self._infos_for(service, items)
 
         run_background(
-            self.page,
-            work,
-            self._on_leagues,
-            self._on_fail,
-            message="Обновляем список лиг…",
-            cancel_previous=True,
+            self.page, work, self._on_leagues, self._on_fail, cancel_previous=True, key="leagues"
         )
 
-    def _on_leagues(self, items: list[Competition]) -> None:
-        self.competitions = items
+    def _on_leagues(self, outcome: tuple[list[Competition], list[LeagueInfo]]) -> None:
+        items, infos = outcome
+        self.competitions = list(items)
+        self.league_infos = list(infos)
         self.loading = False
         self.busy = None
+        self._refresh_leagues_panel()
         self._render_panes()
 
     def _select_league(self, competition: Competition) -> None:
         self.league = competition
-        self.matches = []
         self.forecast = None
         self.selected_match_id = None
-        self.fixture_query = replace(self.fixture_query, page=0)
-        stay = use_split(window_width(self.page)) and self.section == "leagues"
-        self._load_fixtures(stay_on_section=stay)
+        split = use_split(window_width(self.page))
+        if not (split and self.section == "leagues"):
+            self._set_section("fixtures")
+        self.leagues_panel.selected_code = competition.code
+        self.leagues_panel.repaint()
+        days = self._league_days(competition.code)
+        self._apply_league_days(competition, days, jump=True)
+        self._render_panes()
+        self._load_day()
+        self._refresh_league_calendar(competition)
 
-    def _load_fixtures(self, force: bool = False, stay_on_section: bool = False) -> None:
-        if self.league is None:
-            self.error = "Сначала выберите лигу."
-            self._goto("leagues")
+    def _league_days(self, code: str) -> list[date]:
+        getter = getattr(self.service, "cached_league_matches", None)
+        if not callable(getter):
+            return []
+        try:
+            return match_days(getter(code), local_tz())
+        except Exception:  # noqa: BLE001 — jumps are a convenience
+            return []
+
+    def _apply_league_days(self, competition: Competition, days: list[date], *, jump: bool) -> None:
+        self.calendar.set_league(competition, days)
+        if not jump or not days:
             return
-        self.loading = True
-        self.busy = "fixtures"
-        self.error = None
-        if not stay_on_section:
-            self._set_nav("fixtures")
-        self._render_panes()
-        code = self.league.code
+        today = self._today()
+        target = today if today in days else nearest_day(days, today, 1)
+        if target is None:
+            target = nearest_day(days, today, -1)
+        if target is not None:
+            self.calendar.day = target
 
-        def work() -> list[Match]:
-            return self.service.competition_matches(code, force=force)
+    def _refresh_league_calendar(self, competition: Competition) -> None:
+        """Season calendar of the league in the background, for the match-day jumps."""
+        generation, _cancel = self._league_job.start()
+        had_days = bool(self.calendar.league_days)
+        service = self.service
+        code = competition.code
 
-        run_background(
-            self.page,
-            work,
-            self._on_fixtures,
-            self._on_fail,
-            message="Загрузка календаря…",
-            cancel_previous=True,
-        )
+        def work() -> list[date]:
+            service.competition_matches(code)
+            return self._league_days(code)
 
-    def _on_fixtures(self, matches: list[Match]) -> None:
-        self.matches = matches
-        self.loading = False
-        self.busy = None
-        self._render_panes()
+        def ok(days: list[date]) -> None:
+            if not self._league_job.is_current(generation) or self.league is None:
+                return
+            self._league_job.finish(generation)
+            if self.league.code != code:
+                return
+            before = self.calendar.day
+            self._apply_league_days(competition, days, jump=not had_days)
+            self.league_infos = self._infos_for(service, self.competitions)
+            self._refresh_leagues_panel()
+            if self.calendar.day != before:
+                self.calendar.refresh()
+                self._load_day()
+
+        def fail(_message: str) -> None:
+            self._league_job.finish(generation)
+
+        run_background(self.page, work, ok, fail, cancel_previous=True, key="league")
+
+    def _clear_league(self) -> None:
+        self.league = None
+        self._league_job.stop()
+        self.leagues_panel.selected_code = None
+        self.leagues_panel.repaint()
+        self.calendar.set_league(None)
+        self._load_day()
+
+    def _jump_league_day(self, step: int) -> None:
+        target = nearest_day(self.calendar.league_days, self.calendar.day, step)
+        if target is not None:
+            self.calendar.go_to(target)
+
+    # --- calendar day ----------------------------------------------------------------------
+
+    def _load_day(self, force: bool = False) -> None:
+        """Paint the day from SQLite now, refresh it from the API in the background."""
+        if self.gate.locked:
+            return
+        generation, cancel = self._day_job.start()
+        day = self.calendar.day
+        codes = [self.league.code] if self.league is not None else None
+        tz = local_tz()
+        service = self.service
+        cached: list[Match] = []
+        getter = getattr(service, "cached_day_matches", None)
+        if callable(getter):
+            try:
+                cached = list(getter(day, codes=codes, tz=tz))
+            except Exception:  # noqa: BLE001 — the network refresh follows anyway
+                cached = []
+        self.calendar.set_data(cached, loading=True)
+
+        def work() -> list[Match] | None:
+            if cancel.is_set():
+                return None
+            return service.day_matches(day, codes=codes, tz=tz, force=force)
+
+        def ok(matches: list[Match] | None) -> None:
+            if matches is None or not self._day_job.is_current(generation):
+                return
+            self._day_job.finish(generation)
+            self.calendar.set_data(matches, loading=False)
+
+        def fail(message: str) -> None:
+            if not self._day_job.is_current(generation):
+                return
+            self._day_job.finish(generation)
+            self.calendar.set_data(cached, loading=False, error=message)
+
+        run_background(self.page, work, ok, fail, cancel_previous=True, key="calendar")
+
+    # --- forecast + background enrichment ----------------------------------------------
 
     def _open_match(self, match: Match) -> None:
+        self._ai_job.stop()
+        self._ai_interrupted = False
         self.loading = True
         self.busy = "forecast"
         self.error = None
@@ -721,69 +842,88 @@ class FootballApp:
         self.ai_state = None
         self.ai_error = None
         self.selected_match_id = match.id
-        width = window_width(self.page)
-        if use_split(width):
-            self._set_nav("fixtures")
-        else:
-            self._set_nav("match")
+        self.calendar.select_match(match.id)
+        self._set_section("fixtures" if use_split(window_width(self.page)) else "match")
+        service = self.service
 
         def work() -> MatchForecast:
-            return self.service.forecast(match, explain=False)
+            # No HTTP here: numbers from local data, details come in the enrichment.
+            return service.forecast(match, explain=False, details=False)
+
+        def fail(message: str) -> None:
+            if self.selected_match_id != match.id:
+                return
+            self._on_fail(message)
 
         run_background(
-            self.page,
-            work,
-            self._on_forecast,
-            self._on_fail,
-            message="Считаем прогноз…",
-            cancel_previous=True,
+            self.page, work, self._on_forecast, fail, cancel_previous=True, key="forecast"
         )
-        self._render_panes()
+        self._render_panes(parts="right" if self._pane_kind == "split" else "all")
 
     def _on_forecast(self, forecast: MatchForecast) -> None:
+        if not self._is_current(forecast):
+            return
         self.forecast = forecast
         self.loading = False
         self.busy = None
         match = forecast.match
-        self._notify(
-            f"Прогноз готов: {match.home_name} — {match.away_name}",
-            kind="success",
-        )
+        self._notify(f"Прогноз готов: {match.home_name} — {match.away_name}", kind="success")
         self._start_enrichment(forecast)
 
-    def _start_enrichment(self, forecast: MatchForecast) -> None:
-        """Background: API-Football facts (if keyed) + LLM analysis (if configured)."""
+    def _repaint_forecast(self) -> None:
+        if self.section not in FORECAST_SECTIONS:
+            return
+        self._render_panes(parts="right" if self._pane_kind == "split" else "all")
+
+    def _start_enrichment(self, forecast: MatchForecast, *, repaint: bool = True) -> None:
+        """Background: club cards/lineup, player status, news, then the LLM analysis.
+
+        One job at a time: opening another match or leaving the forecast screens sets the
+        cancel Event; results of an old generation are dropped.
+        """
         wants_llm = self.settings.show_ai_block and bool(
             getattr(self.service, "llm_enabled", False)
         )
-        wants_status = bool(getattr(self.service, "player_status_enabled", False)) or bool(
-            getattr(self.service, "news_enabled", False)
-        )
         self.ai_error = None
         self.ai_state = AI_LOADING if wants_llm else AI_NOT_CONFIGURED
-        self._render_panes(parts="right" if self._pane_kind == "split" else "all")
-        if not (wants_llm or wants_status):
-            return
+        if repaint:
+            self._repaint_forecast()
+        generation, cancel = self._ai_job.start()
         service = self.service
 
-        def enrich_work() -> MatchForecast:
-            return service.enrich(forecast, explain=wants_llm)
+        def on_step(partial: MatchForecast) -> None:
+            post_to_ui(self.page, lambda: self._on_enrich_step(generation, partial))
+
+        def work() -> MatchForecast | None:
+            try:
+                return service.enrich(forecast, explain=wants_llm, cancel=cancel, on_step=on_step)
+            except Cancelled:
+                return None
 
         run_background(
             self.page,
-            enrich_work,
-            self._on_explain,
-            self._on_explain_fail,
-            message=None,
-            cancel_previous=False,
+            work,
+            lambda result: self._on_explain(generation, result),
+            lambda message: self._on_explain_fail(generation, message),
+            cancel_previous=True,
+            key="enrich",
         )
 
     def _is_current(self, forecast: MatchForecast) -> bool:
         return self.selected_match_id is None or forecast.match.id == self.selected_match_id
 
-    def _on_explain(self, forecast: MatchForecast) -> None:
+    def _on_enrich_step(self, generation: int, forecast: MatchForecast) -> None:
+        if not self._ai_job.is_current(generation) or not self._is_current(forecast):
+            return
+        self.forecast = forecast
+        self._repaint_forecast()
+
+    def _on_explain(self, generation: int, forecast: MatchForecast | None) -> None:
+        if forecast is None or not self._ai_job.is_current(generation):
+            return  # cancelled or superseded by another match
         if not self._is_current(forecast):
-            return  # the user already opened another match
+            return
+        self._ai_job.finish(generation)
         self.forecast = forecast
         if forecast.explanation is not None:
             self.ai_state = AI_READY
@@ -793,21 +933,49 @@ class FootballApp:
             self._notify(f"AI-разбор не получен: {forecast.explanation_error}", kind="error")
         elif self.ai_state == AI_LOADING:
             self.ai_state = AI_NOT_CONFIGURED
-        self._render_panes(parts="right" if self._pane_kind == "split" else "all")
+        self._repaint_forecast()
 
-    def _on_explain_fail(self, message: str) -> None:
+    def _on_explain_fail(self, generation: int, message: str) -> None:
+        if not self._ai_job.is_current(generation):
+            return
+        self._ai_job.finish(generation)
         self.ai_state = AI_ERROR
         self.ai_error = message or "неизвестная ошибка"
-        self._render_panes(parts="right" if self._pane_kind == "split" else "all")
+        self._repaint_forecast()
         self._notify(f"AI-разбор не получен: {self.ai_error}", kind="error")
 
     def _on_fail(self, message: str) -> None:
         self.loading = False
         self.busy = None
-        self.booting = False
         self.error = message
         self._render_panes()
         self._notify(message, kind="error", alert=True)
+
+    # --- settings + key gate ---------------------------------------------------------------
+
+    def _team_choices(self) -> tuple[Team, ...]:
+        getter = getattr(self.service, "cached_teams", None)
+        if not callable(getter):
+            return ()
+        try:
+            return tuple(getter())
+        except Exception:  # noqa: BLE001 — settings must open even if cache is empty
+            return ()
+
+    def _load_settings_choices(self) -> None:
+        getter = getattr(self.service, "teams_by_league", None)
+        if not callable(getter):
+            self._teams_by_league = []
+            return
+        try:
+            teams = getter()
+        except Exception:  # noqa: BLE001
+            teams = {}
+        known = {item.code: item for item in self.competitions}
+        self._teams_by_league = [
+            (known.get(code, Competition(0, code, code)), list(members))
+            for code, members in teams.items()
+        ]
 
     def _save_settings(self, payload: dict[str, str | bool]) -> None:
         self.loading = True
@@ -828,8 +996,8 @@ class FootballApp:
                 ("FAVORITE_LEAGUES", "favorite_leagues", ""),
                 ("FAVORITE_TEAMS", "favorite_teams", ""),
             )
-            for env_key, field, default in text_values:
-                write_env_value(env_key, _env_text(payload.get(field), default))
+            for env_key, name, default in text_values:
+                write_env_value(env_key, _env_text(payload.get(name), default))
             flags = (
                 ("PREFETCH_WAIT_ON_START", "prefetch_wait_on_start", False),
                 ("SHOW_AI_BLOCK", "show_ai_block", True),
@@ -837,12 +1005,13 @@ class FootballApp:
                 ("SYSTEM_NOTIFICATIONS", "system_notifications", False),
                 ("NEWS_RSS_ENABLED", "news_rss_enabled", True),
             )
-            for env_key, field, default in flags:
-                write_env_value(env_key, _env_flag(payload.get(field, default)))
+            for env_key, name, default in flags:
+                write_env_value(env_key, _env_flag(payload.get(name, default)))
             return load_settings()
 
         def ok(settings: Settings) -> None:
-            had_football_key = self.settings.has_football_key
+            old_key = self.settings.football_data_api_key.strip()
+            was_locked = self.gate.locked
             old_service = self.service
             self.settings = settings
             # Rate limiters are process-wide (services.factory), so the rebuild keeps
@@ -855,23 +1024,115 @@ class FootballApp:
             self.loading = False
             self.busy = None
             self.status = "Настройки сохранены и применены."
-            self._render_panes()
+            key_changed = settings.football_data_api_key.strip() != old_key
+            self.gate.evaluate(settings)
+            if self.gate.state is GateState.MISSING:
+                self.status = None
+                self._render_panes()
+                self._notify(self.gate.notice(), kind="info")
+                return
+            self._refresh_leagues_panel()
             self._notify("Настройки сохранены и применены.", kind="success")
-            if settings.has_football_key and not had_football_key and not self.booting:
-                self._start_boot()
-            elif self.forecast is not None and self.forecast.explanation is None:
+            if key_changed or was_locked:
+                self._check_key()
+                return
+            self._render_panes()
+            if self.forecast is not None and self.forecast.explanation is None:
                 self._start_enrichment(self.forecast)
 
-        run_background(
-            self.page,
-            work,
-            ok,
-            self._on_fail,
-            message="Сохраняем настройки…",
-            cancel_previous=True,
-        )
+        run_background(self.page, work, ok, self._on_fail, cancel_previous=True, key="settings")
 
-    # --- training data collection (background, cancellable) -----------------
+    def _check_key(self) -> None:
+        """Validate the football-data.org key with one request; unlock on success."""
+        self.gate.start_check()
+        self.status = None
+        self._render_panes()
+        service = self.service
+
+        def work():
+            return service.check_key()
+
+        run_background(self.page, work, self._on_key_checked, self._on_key_check_error, key="gate")
+
+    def _on_key_checked(self, result) -> None:
+        was_locked = True
+        if result.ok:
+            self.gate.check_passed()
+            self.status = f"Ключ принят. Доступно лиг: {result.leagues}."
+            self._notify(self.status, kind="success")
+        else:
+            self.gate.check_failed(result.message, rejected=result.rejected)
+            if self.gate.locked:
+                self.status = None
+                self._notify(self.gate.notice(), kind="error")
+            else:
+                self.status = f"Ключ сохранён, но проверить его сейчас нельзя: {result.message}"
+                self._notify(self.status, kind="info")
+        self._render_panes()
+        if was_locked and not self.gate.locked:
+            self._after_unlock()
+
+    def _on_key_check_error(self, message: str) -> None:
+        self.gate.check_failed(message, rejected=False)
+        self.status = f"Ключ сохранён, но проверить его сейчас нельзя: {message}"
+        self._render_panes()
+        self._after_unlock()
+
+    def _after_unlock(self) -> None:
+        """Load what the locked app skipped, without a restart."""
+        service = self.service
+
+        def work() -> tuple[list[Competition], list[LeagueInfo]]:
+            items = service.bootstrap()
+            return items, self._infos_for(service, items)
+
+        def ok(outcome: tuple[list[Competition], list[LeagueInfo]]) -> None:
+            items, infos = outcome
+            self.competitions = list(items)
+            self.league_infos = list(infos)
+            self._refresh_leagues_panel()
+            self._load_settings_choices()
+            if self.section == "settings":
+                self._render_panes()
+            self._load_day()
+
+        run_background(self.page, work, ok, lambda _m: self._load_day(), key="leagues")
+
+    def _test_connection(self) -> None:
+        self._check_key()
+
+    def _refresh_counts(self) -> None:
+        """Load season calendars of every league to count upcoming matches (detached)."""
+        if self.counting:
+            return
+        codes = [item.code for item in self.competitions]
+        if not codes:
+            return
+        self.counting = "Считаем матчи лиг…"
+        self._render_panes()
+        service = self.service
+
+        def work() -> list[LeagueInfo]:
+            return list(service.refresh_league_counts(codes))
+
+        def ok(infos: list[LeagueInfo]) -> None:
+            self.counting = None
+            self.league_infos = infos
+            self._refresh_leagues_panel()
+            self._load_settings_choices()
+            if self.section == "settings":
+                self._render_panes()
+            self._notify("Счётчики матчей обновлены.", kind="success")
+
+        def fail(message: str) -> None:
+            self.counting = None
+            if self.section == "settings":
+                self._render_panes()
+            self._notify(f"Не удалось обновить счётчики: {message}", kind="error")
+
+        run_detached(self.page, work, ok, fail)
+
+    # --- training data collection (background, cancellable) -----------------------------
 
     def _training_codes(self) -> list[str]:
         codes = self.settings.favorite_codes()
@@ -880,13 +1141,16 @@ class FootballApp:
         return codes
 
     def _repaint_training(self, *, force: bool = False) -> None:
+        """Repaint only the training card: unsaved Settings fields keep their text."""
         if self.section != "settings":
             return
         now = time.monotonic()
         if not force and now - self._training_painted_at < 0.25:
             return
         self._training_painted_at = now
-        self._render_panes()
+        self._training_slot.content = self._training_block(window_width(self.page))
+        if not safe_update(self._training_slot):
+            self.page.update()
 
     def _start_training(self) -> None:
         if self.training.running:
@@ -955,20 +1219,70 @@ class FootballApp:
         self._repaint_training(force=True)
         self._notify(f"Сбор данных не удался: {message}", kind="error")
 
+    # --- CSV export: save dialog, data/exports as the fallback ---------------------------
+
+    def _file_picker(self) -> ft.FilePicker | None:
+        """Native save dialog on desktop; None in web/mobile or outside a real page."""
+        page = self.page
+        if not isinstance(page, ft.Page) or getattr(page, "web", False):
+            return None
+        if self._picker is None:
+            try:
+                picker = ft.FilePicker()
+                if not is_mounted(picker):
+                    page._services.register_service(picker)  # noqa: SLF001
+                self._picker = picker
+            except Exception:  # noqa: BLE001 — fall back to data/exports
+                return None
+        return self._picker
+
     def _export_history(self) -> None:
         if self.training.running:
             return
+        picker = self._file_picker()
+        runner = getattr(self.page, "run_task", None)
+        if picker is None or not callable(runner):
+            self._run_export(None)
+            return
+        stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+
+        async def ask() -> None:
+            try:
+                EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+                chosen = await picker.save_file(
+                    dialog_title="Куда сохранить историю прогнозов",
+                    file_name=f"forecast_history_{stamp}.csv",
+                    initial_directory=str(EXPORTS_DIR),
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=["csv"],
+                )
+            except Exception as exc:  # noqa: BLE001 — no dialog: save to data/exports
+                self._run_export(None, note=f"Окно выбора недоступно ({exc}).")
+                return
+            if not chosen:
+                self.training = replace(self.training, error=None, result="Экспорт отменён.")
+                self._repaint_training(force=True)
+                return
+            self._run_export(Path(chosen))
+
+        runner(ask)
+
+    def _run_export(self, target: Path | None, *, note: str | None = None) -> None:
         service = self.service
 
         def work():
-            records_path, summary_path, rows = service.export_history(EXPORTS_DIR)
+            if target is None:
+                records_path, summary_path, rows = service.export_history(EXPORTS_DIR)
+            else:
+                records_path, summary_path, rows = service.export_history(records_path=target)
             return records_path, summary_path, rows, service.calibration_report()
 
         def ok(outcome) -> None:
             records_path, summary_path, rows, report = outcome
+            prefix = f"{note} " if note else ""
             self.training = replace(
                 self.training,
-                export_path=f"{records_path} ({rows} строк); сводка: {summary_path}",
+                export_path=f"{prefix}{records_path} ({rows} строк); сводка: {summary_path}",
                 stats=calibration_lines(report),
                 error=None,
             )
@@ -981,25 +1295,30 @@ class FootballApp:
 
         run_detached(self.page, work, ok, fail)
 
+    # --- cache -----------------------------------------------------------------------------
+
     def _clear_cache(self) -> None:
         self.loading = True
         self.busy = "settings"
         self.error = None
         self.status = None
         self._render_panes()
+        service = self.service
 
         def work() -> list[Competition]:
-            self.service.clear_cache()
-            return self.service.cached_competitions()
+            service.clear_cache()
+            return service.cached_competitions()
 
         def ok(items: list[Competition]) -> None:
             self.competitions = items
-            self.matches = []
+            self.league_infos = self._infos_for(service, items)
+            self.calendar.set_data([])
             self.forecast = None
             self.selected_match_id = None
             self.loading = False
             self.busy = None
             self.status = "Кэш очищен."
+            self._refresh_leagues_panel()
             self._render_panes()
             self._notify("Кэш очищен.", kind="info")
 
@@ -1010,33 +1329,7 @@ class FootballApp:
             self._on_fail,
             message="Очищаем кэш…",
             cancel_previous=True,
-        )
-
-    def _test_connection(self) -> None:
-        self.loading = True
-        self.busy = "settings"
-        self.error = None
-        self.status = None
-        self._render_panes()
-
-        def work() -> str:
-            items = self.service.ping()
-            return f"Соединение успешно. Доступно лиг: {len(items)}."
-
-        def ok(message: str) -> None:
-            self.loading = False
-            self.busy = None
-            self.status = message
-            self._render_panes()
-            self._notify(message, kind="success")
-
-        run_background(
-            self.page,
-            work,
-            ok,
-            self._on_fail,
-            message="Проверяем соединение…",
-            cancel_previous=True,
+            key="settings",
         )
 
 
@@ -1054,10 +1347,12 @@ def start_ui(
         controls = getattr(page, "controls", None)
         if isinstance(controls, list):
             controls.clear()
-    page.add(splash_view("Запуск приложения…"))
+    first = splash_view("Запуск приложения…")
+    page.add(first)
     updater = getattr(page, "update", None)
     if callable(updater):
         updater()
+    start_spin(first)
     settings = settings or load_settings()
     service = service or build_service(settings)
     if callable(cleaner):
