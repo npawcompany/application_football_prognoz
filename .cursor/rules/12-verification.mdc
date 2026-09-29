@@ -1,0 +1,13 @@
+---
+description: Require fresh verification evidence before claiming work is done
+alwaysApply: true
+---
+
+# Verification
+
+No completion, “fixed”, or “tests pass” without a command you ran **in this turn**.
+
+- After code changes: syntax check and the project’s test command.
+- UI: exercise the flow (browser tools if this is a web app you changed).
+- Pack changes: `.\scripts\doctor.ps1` (or `./scripts/doctor.sh`).
+- Skill: `verification-before-completion`. QA role in the swarm uses this.

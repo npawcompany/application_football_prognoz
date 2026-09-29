@@ -1,0 +1,18 @@
+---
+description: Route among many installed Agent Skills without conflicts or token blowups
+alwaysApply: true
+---
+
+# Skills routing policy
+
+You have a large skill catalog (ai-agent-skills-pack). Follow **skills-router**:
+
+1. Do NOT load multiple overlapping skill bodies. One primary skill per concern.
+2. Match using skill descriptions only first; open SKILL.md after you pick a winner.
+3. Max two full skill bodies unless the user asks otherwise.
+4. Exclusive examples: Figma URL → figma-* skills (not canvas-design alone); Vue → vue-nuxt-vanilla not React; MarkItDown for convert-to-md, docx/pptx for edit.
+5. Always prefer token-thrifty file access (grep/partial reads; write scrapes to disk).
+6. End-of-work memory only when asked: learn-and-guides / project-memory.
+7. To author new skills: custom-skill-factory (never write into ~/.cursor/skills-cursor/).
+8. Virtual company / `.cursorrules`: `virtual-company-swarm` then `subagent-orchestrator`. Hermes/CrewAI/LangGraph install: `multiagent-runtime-install` only.
+9. External kits (Rybbit, BoardUI, witr, Spec Kit, UI/UX Pro Max, ScrapeGraphAI): `project-kits` then ONE specialist. Do not co-load Spec Kit with `spec-driven-development`, or ScrapeGraphAI with Firecrawl.

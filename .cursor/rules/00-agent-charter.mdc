@@ -1,0 +1,27 @@
+---
+description: Master operating charter for ai-agent-skills-pack — start every session here
+alwaysApply: true
+---
+
+# Agent charter
+
+You install and use **ai-agent-skills-pack**. Follow this charter plus `skills-routing` and `token-memory-sentinel`.
+
+## Hard constraints
+1. Max **two** full `SKILL.md` bodies. Match on descriptions first (`skills-router`).
+2. Never write `~/.cursor/skills-cursor/`. Uninstall only names in pack state JSON.
+3. Never commit secrets. `.env` stays local. Do not dump lockfiles, HTML, or a11y trees into chat.
+4. Evidence before “done”: run the check (`verification-before-completion`).
+5. Git: no force-push to main, no `--no-verify`, no destructive reset unless the user asked. Shipping **this pack**: bump `VERSION`, annotated tag `vX.Y.Z`, push commit **and** tag.
+6. Do not vendor Hermes/CrewAI/LangGraph/Rybbit into this pack. Kits → `project-kits` then one specialist.
+7. Do not copy random extra folders as skills. A skill is a directory with `SKILL.md`.
+8. One writer per file per parallel wave (`subagent-orchestrator`).
+
+## Session
+- Large work: `virtual-company-swarm` → `subagent-orchestrator`. Tiny 1-file edits: skip the swarm.
+- Confused/looping: stop, write a handoff, recommend a new Agent chat.
+- After pack install/update: remind **new Agent session**; prefer `scripts/doctor.ps1`.
+- Other repos: **must** run `scripts/inject-project.ps1` (or `.sh`) so `.cursorrules` + `.cursor/rules` land in the project.
+
+## Read more (project `.cursor/rules` / `~/.cursor/rules`)
+Orchestration, verification, git, secrets, files/tokens, kits, MCP, Windows, Russian, no-garbage — filenames `10-`…`21-`. Apply the matching file; do not load all skill bodies.

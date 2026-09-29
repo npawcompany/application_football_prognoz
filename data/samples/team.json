@@ -1,0 +1,52 @@
+{
+  "id": 57,
+  "name": "Arsenal FC",
+  "shortName": "Arsenal",
+  "tla": "ARS",
+  "crest": "https://crests.football-data.org/57.png",
+  "address": "75 Drayton Park London N5 1BU",
+  "venue": "Emirates Stadium",
+  "area": {"id": 2072, "name": "England", "code": "ENG"},
+  "coach": {
+    "id": 11616,
+    "name": "Mikel Arteta",
+    "dateOfBirth": "1982-03-26",
+    "nationality": "Spain",
+    "contract": {"start": "2019-12-22", "until": "2027-06-30"}
+  },
+  "squad": [
+    {
+      "id": 14781,
+      "name": "David Raya",
+      "position": "Goalkeeper",
+      "dateOfBirth": "1995-09-15",
+      "nationality": "Spain",
+      "role": "PLAYER"
+    },
+    {
+      "id": 3236,
+      "name": "William Saliba",
+      "position": "Defender",
+      "dateOfBirth": "2001-03-24",
+      "nationality": "France",
+      "role": "PLAYER"
+    },
+    {
+      "id": 44,
+      "name": "Martin Ødegaard",
+      "position": "Midfielder",
+      "dateOfBirth": "1998-12-17",
+      "nationality": "Norway",
+      "role": "PLAYER",
+      "shirtNumber": 8
+    },
+    {
+      "id": 3237,
+      "name": "Bukayo Saka",
+      "position": "Attacker",
+      "dateOfBirth": "2001-09-05",
+      "nationality": "England",
+      "role": "PLAYER"
+    }
+  ]
+}

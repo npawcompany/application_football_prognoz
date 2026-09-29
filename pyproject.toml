@@ -1,0 +1,83 @@
+[project]
+name = "football-prognoz"
+version = "0.1.0"
+description = "Статистический прогноз футбольных матчей (1X2, таблица ставок, AI-разбор). Не совет ставить деньги."
+readme = "README.md"
+requires-python = ">=3.11"
+# Runtime only: this list is what `flet build` bundles into the app (desktop, mobile, web).
+dependencies = [
+    "flet>=0.80.5,<0.81",
+    "httpx>=0.27.0",
+    "pydantic-settings>=2.4.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+# Offline training / CSV import (scripts/train.py); never imported by the app itself.
+train = [
+    "pandas>=2.2.0",
+    "scikit-learn>=1.5.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+    "pandas>=2.2.0",
+    "scikit-learn>=1.5.0",
+    "pillow>=10.0",  # scripts/make_assets.py (icon, splash, background pattern)
+    "flet-cli>=0.80.5,<0.81",  # `flet build` / `flet run`
+]
+
+[project.scripts]
+football-prognoz = "football_prognoz.main:run"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# .cursor: agent skill scripts; design-*: static previews; docs/vkr: thesis text (untouched).
+extend-exclude = [".cursor", "design-preview", "design-system", "docs/vkr"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+# --- flet build (see docs/BUILD.md) -------------------------------------------------
+[tool.flet]
+product = "Football Prognoz"
+org = "com.npawcompany"
+bundle_id = "com.npawcompany.footballprognoz"
+company = "npawcompany"
+copyright = "Copyright © 2026 npawcompany"
+build_number = 1
+
+[tool.flet.app]
+path = "src"
+module = "main"  # src/main.py -> football_prognoz.main.run()
+exclude = ["football_prognoz.egg-info"]
+
+[tool.flet.splash]
+color = "#0C1E3D"
+dark_color = "#0C1E3D"
+
+[tool.flet.android]
+adaptive_icon_background = "#0C1E3D"  # behind assets/icon_android.png
+
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true  # football-data.org, API-Football, Ollama, news RSS
+
+[tool.flet.macos.entitlement]
+"com.apple.security.network.client" = true  # outgoing HTTPS from the sandbox
+"com.apple.security.files.user-selected.read-write" = true  # «Сохранить CSV» dialog
+
+[tool.flet.web]
+pwa_background_color = "#0C1E3D"
+pwa_theme_color = "#22C55E"

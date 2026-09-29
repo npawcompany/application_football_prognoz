@@ -1,0 +1,45 @@
+{
+  "filters": {"dateFrom": "2026-09-28", "dateTo": "2026-10-06", "permission": "TIER_ONE"},
+  "resultSet": {"count": 3, "competitions": "PL,CL,XYZ", "first": "2026-09-30", "last": "2026-10-03", "played": 0},
+  "matches": [
+    {
+      "area": {"id": 2072, "name": "England", "code": "ENG", "flag": "https://crests.football-data.org/770.svg"},
+      "competition": {"id": 2021, "name": "Premier League", "code": "PL", "type": "LEAGUE", "emblem": "https://crests.football-data.org/PL.png"},
+      "id": 600001,
+      "utcDate": "2026-10-03T14:00:00Z",
+      "status": "TIMED",
+      "matchday": 7,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "homeTeam": {"id": 57, "name": "Arsenal FC", "shortName": "Arsenal", "tla": "ARS", "crest": "https://crests.football-data.org/57.png"},
+      "awayTeam": {"id": 61, "name": "Chelsea FC", "shortName": "Chelsea", "tla": "CHE", "crest": "https://crests.football-data.org/61.png"},
+      "score": {"winner": null, "duration": "REGULAR", "fullTime": {"home": null, "away": null}, "halfTime": {"home": null, "away": null}}
+    },
+    {
+      "area": {"id": 2077, "name": "Europe", "code": "EUR", "flag": "https://crests.football-data.org/EUR.svg"},
+      "competition": {"id": 2001, "name": "UEFA Champions League", "code": "CL", "type": "CUP", "emblem": "https://crests.football-data.org/CL.png"},
+      "id": 600002,
+      "utcDate": "2026-09-30T19:00:00Z",
+      "status": "TIMED",
+      "matchday": 2,
+      "stage": "LEAGUE_STAGE",
+      "group": null,
+      "homeTeam": {"id": 65, "name": "Manchester City FC", "shortName": "Man City", "tla": "MCI", "crest": "https://crests.football-data.org/65.png"},
+      "awayTeam": {"id": 86, "name": "Real Madrid CF", "shortName": "Real Madrid", "tla": "RMA", "crest": "https://crests.football-data.org/86.png"},
+      "score": {"winner": null, "duration": "REGULAR", "fullTime": {"home": null, "away": null}, "halfTime": {"home": null, "away": null}}
+    },
+    {
+      "area": {"id": 9999, "name": "Nowhere", "code": "XXX", "flag": null},
+      "competition": {"id": 9999, "name": "Paid Only League", "code": "XYZ", "type": "LEAGUE", "emblem": null},
+      "id": 600003,
+      "utcDate": "2026-10-01T18:00:00Z",
+      "status": "TIMED",
+      "matchday": 1,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "homeTeam": {"id": 1, "name": "A", "shortName": "A", "tla": "AAA", "crest": null},
+      "awayTeam": {"id": 2, "name": "B", "shortName": "B", "tla": "BBB", "crest": null},
+      "score": {"winner": null, "duration": "REGULAR", "fullTime": {"home": null, "away": null}, "halfTime": {"home": null, "away": null}}
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+{"ts":"2026-07-24T12:00:00Z","session":"demo","actor":"parent","event":"plan","summary":"Split feature into T1 explore + T2 implement","paths":[],"tools":[],"status":"ok","error":null,"parent_event":null,"meta":{}}
+{"ts":"2026-07-24T12:01:00Z","session":"demo","actor":"subagent:explorer:T1","event":"dispatch","summary":"Find auth middleware paths","paths":[],"tools":["Task"],"status":"ok","error":null,"parent_event":null,"meta":{"task_id":"T1"}}
+{"ts":"2026-07-24T12:05:00Z","session":"demo","actor":"subagent:implementer:T2","event":"error","summary":"Tests failed on auth route","paths":["src/auth.ts"],"tools":["Shell"],"status":"fail","error":"AssertionError: 401 != 200","parent_event":null,"meta":{"task_id":"T2"}}

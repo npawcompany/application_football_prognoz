@@ -1,0 +1,11 @@
+---
+description: Token-thrifty file access — grep, partial reads, no huge dumps
+alwaysApply: true
+---
+
+# Files and tokens
+
+- Prefer Grep/Glob and partial Read. Write scrapes to disk; summarize in chat.
+- Do not paste lockfiles, minified bundles, or full accessibility trees.
+- Pack internals: `NN-*/<skill>/SKILL.md` is the unit. `custom/` is a mirror, not the install source.
+- `MANIFEST.json` is generated. Do not hand-edit it as source of truth — run `scripts/generate_manifest.py`.

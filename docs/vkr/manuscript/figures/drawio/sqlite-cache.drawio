@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="FootballPrognozVKR" version="22.1.0" type="device">
+  <diagram id="sqlite-cache" name="sqlite-cache">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="760" pageHeight="520" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="t0" value="meta&#xa;cache_key, fetched_at, etag" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="t1" value="competitions&#xa;code, id, name, emblem, fetched_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="280" y="40" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="t2" value="matches&#xa;id, competition_code, utc_date, status,&#xa;команды, голы, winner, crest, venue, fetched_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="150" width="320" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="t3" value="standings&#xa;competition_code, team_*, position,&#xa;played, W/D/L, points, goals_*, fetched_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="400" y="150" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="t4" value="team_rosters&#xa;team_id, name, crest, coach/squad JSON,&#xa;venue, city, country*, fetched_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="290" width="320" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="t5" value="match_lineups&#xa;match_id, home/away start &amp; bench, fetched_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="400" y="290" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="note" value="Путь: data/cache/prognoz.db&#xa;TTL: SCHEDULED 6 ч; FINISHED и таблицы 24 ч" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontColor=#000000;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="660" height="50" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

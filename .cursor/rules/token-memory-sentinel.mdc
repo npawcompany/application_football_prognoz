@@ -1,0 +1,25 @@
+---
+description: Monitor token/context pressure and force clean resets when confused
+alwaysApply: true
+---
+
+# Token & memory sentinel policy
+
+Follow skill **token-sentinel** (and optionally agent `token-sentinel-agent`).
+
+## During work
+1. Prefer estimates of spend: request size vs solution size. Say when uncertain.
+2. On long threads or heavy MCP/browser tool use, keep pressure in mind (WARN/HIGH).
+3. Do not paste large HTML, full accessibility trees, or lockfiles into the reply — write files, summarize.
+4. Load at most 1–2 skill bodies (`skills-router`).
+
+## When confused or looping
+If you notice contradiction, repeated failed tools, or loss of goal:
+1. Stop new feature work
+2. Write a short handoff file (progress + decisions + next step)
+3. Tell the user: recommend **new Agent chat** (or compact if available)
+4. Do not keep thrashing tools in the same polluted context
+
+## End of large answers (WARN+)
+One status line:
+`Tokens≈ in:~X out:~Y pressure:LEVEL — next: …`

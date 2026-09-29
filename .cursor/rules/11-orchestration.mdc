@@ -1,0 +1,13 @@
+---
+description: Multi-agent swarm, Task subagents, parallel waves, .agent_status.md
+alwaysApply: true
+---
+
+# Orchestration
+
+- Large tasks: `virtual-company-swarm` → `subagent-orchestrator`. Label `[Agent: role]` before a slice.
+- Parallel only with no shared writes. One file → one writer per wave.
+- Log dispatches in `.agent-journal/` (`agent-action-journal`). Status board: `.agent_status.md`.
+- Parent verifies; do not trust subagent LGTM alone.
+- Tiny 1-file edits: do them yourself (no Task).
+- Do not co-load bodies of `agent-orchestrator` + `multi-agent-task-orchestrator` + `parallel-agents`.
