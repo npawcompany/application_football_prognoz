@@ -14,12 +14,14 @@ import re
 from typing import Any, Protocol
 
 from football_prognoz.ai.ollama import LLMError, LLMReply
+from football_prognoz.domain.markets import MarketsTable
 from football_prognoz.domain.match import Match
 from football_prognoz.domain.prediction import (
     CONFIDENCE_LEVELS,
     Explanation,
     Factor,
     FactsPackage,
+    MarketComment,
     MatchFeatures,
     Probabilities,
     Scoreline,
@@ -27,17 +29,19 @@ from football_prognoz.domain.prediction import (
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "analysis-v3"
+PROMPT_VERSION = "analysis-v4"
 
 SYSTEM_PROMPT = """You explain football statistical forecasts for a desktop app.
 You receive JSON with: match, probabilities (1X2 computed by a local Elo + Poisson model;
 they are FINAL), favorite ("1" home, "X" draw, "2" away), facts, context (Elo gap, form,
 home/away records, goal trends, standings, head-to-head, rest days), an optional
-preliminary_score, an optional player_status block (absences, recent red cards,
-transfers, lineups, ratings), an optional news block (recent media headlines per team
-with topic), an optional historical_accuracy block (how past pre-match forecasts of this
-model performed, incl. how often outcomes with a similar probability came true) and
-data_sources.
+preliminary_score, an optional markets table (bookmaker markets with the probability
+computed by the same model: id, label, probability, push for refunds, fair_odds,
+confidence), an optional player_status block (absences, recent red cards,
+transfers, lineups, ratings, set-piece averages), an optional news block (recent
+media headlines per team with topic), an optional historical_accuracy block (how past
+pre-match forecasts of this model performed, incl. how often outcomes with a similar
+probability came true) and data_sources.
 
 Return ONLY one JSON object, no markdown, with exactly these keys:
 {
@@ -49,7 +53,10 @@ Return ONLY one JSON object, no markdown, with exactly these keys:
   "favorite": "1|X|2",
   "verdict": "1-2 sentences in Russian consistent with the computed probabilities",
   "confidence": "low|medium|high",
-  "confidence_reason": "one short Russian sentence"
+  "confidence_reason": "one short Russian sentence",
+  "market_comments": [{"market": "<id from markets>", "comment": "1 short Russian sentence"}],
+  "top_markets": [{"market": "<id from markets>", "reason": "why the facts support it, Russian"}],
+  "risks": ["short Russian risk that could break the picture"]
 }
 
 Rules:
@@ -69,7 +76,14 @@ Rules:
   probabilities of this match. If it is null, do not mention past accuracy.
 - If a preliminary score is present, you may mention it with its probability; it is
   not a guarantee.
-- Do not give betting advice.
+- markets: the numbers are FINAL. Comment on 3-8 key markets and pick exactly 3
+  "top_markets" — the ones best supported by the facts (not the highest odds). Use only
+  ids present in "markets"; never invent a market, line or number. If you quote a
+  percentage, it must be that market's "probability" rounded. Rows listed in
+  "markets_unavailable" have no data: do not comment on them.
+- risks: 1-4 concrete risks from the facts (absences, small sample, close
+  probabilities, rest days, unverified news).
+- Do not give betting advice: describe probabilities, never tell the user to bet.
 """
 
 _GUARANTEE_RE = re.compile(
@@ -97,6 +111,11 @@ _DIRECTION_ALIASES = {
     "0": "neutral",
 }
 _MAX_FACTORS = 6
+_MAX_MARKET_COMMENTS = 8
+_MAX_RISKS = 4
+TOP_MARKETS = 3
+PERCENT_TOLERANCE = 1.5  # percentage points between a quoted % and the table value
+_PERCENT_RE = re.compile(r"(\d{1,3}(?:[.,]\d+)?)\s*%")
 
 
 class LLMClient(Protocol):
@@ -209,11 +228,73 @@ def _check_no_guarantee(texts: list[str]) -> None:
                 raise _Invalid(f"формулировка о гарантированном исходе: «{match.group(0)}»")
 
 
+def _check_percentages(text: str, market_id: str, table: MarketsTable) -> None:
+    market = table.by_key(market_id)
+    expected = (market.effective or 0.0) * 100 if market is not None else None
+    for raw in _PERCENT_RE.findall(text):
+        value = float(raw.replace(",", "."))
+        if expected is None or abs(value - expected) > PERCENT_TOLERANCE:
+            raise _Invalid(
+                f"в комментарии к {market_id} число {raw}% не совпадает с таблицей "
+                f"({expected:.0f}%)"
+                if expected is not None
+                else f"рынок {market_id} без данных"
+            )
+
+
+def _market_items(
+    data: dict[str, Any], key: str, text_key: str, table: MarketsTable, limit: int
+) -> tuple[MarketComment, ...]:
+    raw = data.get(key)
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise _Invalid(f"{key} должен быть списком")
+    allowed = table.available_keys
+    items: list[MarketComment] = []
+    seen: set[str] = set()
+    for entry in raw[:limit]:
+        if not isinstance(entry, dict):
+            raise _Invalid(f"элемент {key} не объект")
+        market_id = str(entry.get("market") or "").strip()
+        if market_id not in allowed:
+            raise _Invalid(f"{key}: рынка «{market_id or '∅'}» нет в таблице")
+        if market_id in seen:
+            raise _Invalid(f"{key}: рынок {market_id} повторяется")
+        seen.add(market_id)
+        comment = _text(entry, text_key)
+        _check_percentages(comment, market_id, table)
+        items.append(MarketComment(market=market_id, comment=comment))
+    return tuple(items)
+
+
+def parse_markets_part(data: dict[str, Any], table: MarketsTable | None) -> dict[str, Any]:
+    """Validate market comments / top-3 / risks against the computed table."""
+    if table is None or not table.available_keys:
+        return {"market_comments": [], "top_markets": [], "risks": []}
+    comments = _market_items(data, "market_comments", "comment", table, _MAX_MARKET_COMMENTS)
+    top = _market_items(data, "top_markets", "reason", table, TOP_MARKETS + 2)
+    need = min(TOP_MARKETS, len(table.available_keys))
+    if len(top) != need:
+        raise _Invalid(f"top_markets: нужно ровно {need} рынка из таблицы, получено {len(top)}")
+    raw_risks = data.get("risks") or []
+    if not isinstance(raw_risks, list):
+        raise _Invalid("risks должен быть списком")
+    risks = [str(r).strip() for r in raw_risks[:_MAX_RISKS] if str(r).strip()]
+    _check_no_guarantee([c.comment for c in comments + top] + risks)
+    return {
+        "market_comments": [c.__dict__ for c in comments],
+        "top_markets": [c.__dict__ for c in top],
+        "risks": risks,
+    }
+
+
 def parse_analysis(
     text: str,
     probabilities: Probabilities,
     features: MatchFeatures,
     history_rate: float | None = None,
+    markets: MarketsTable | None = None,
 ) -> dict[str, Any]:
     """Validate the model answer. Returns normalized fields or raises _Invalid."""
     data = _extract_json(text)
@@ -241,7 +322,9 @@ def parse_analysis(
             "или похожие прогнозы в прошлом сбывались реже чем в половине случаев."
         )
         reason = f"{reason} {note}".strip()
+    market_part = parse_markets_part(data, markets)
     return {
+        **market_part,
         "summary": summary,
         "verdict": verdict,
         "confidence": confidence,
@@ -251,7 +334,9 @@ def parse_analysis(
     }
 
 
-def _explanation_from(parsed: dict[str, Any], model: str, sources: tuple[str, ...]) -> Explanation:
+def _explanation_from(
+    parsed: dict[str, Any], model: str, sources: tuple[str, ...], notice: str = ""
+) -> Explanation:
     return Explanation(
         text=parsed["summary"],
         model=model,
@@ -261,6 +346,33 @@ def _explanation_from(parsed: dict[str, Any], model: str, sources: tuple[str, ..
         confidence=parsed["confidence"],
         confidence_reason=parsed["confidence_reason"],
         sources=sources,
+        market_comments=tuple(MarketComment(**c) for c in parsed.get("market_comments", [])),
+        top_markets=tuple(MarketComment(**c) for c in parsed.get("top_markets", [])),
+        risks=tuple(parsed.get("risks", [])),
+        notice=notice,
+    )
+
+
+def explanation_to_dict(explanation: Explanation) -> dict[str, Any]:
+    """Durable form for SQLite `llm_analyses` (kind "match")."""
+    return {
+        "summary": explanation.text,
+        "verdict": explanation.verdict,
+        "confidence": explanation.confidence,
+        "confidence_reason": explanation.confidence_reason,
+        "home_factors": [f.__dict__ for f in explanation.home_factors],
+        "away_factors": [f.__dict__ for f in explanation.away_factors],
+        "market_comments": [c.__dict__ for c in explanation.market_comments],
+        "top_markets": [c.__dict__ for c in explanation.top_markets],
+        "risks": list(explanation.risks),
+        "sources": list(explanation.sources),
+        "notice": explanation.notice,
+    }
+
+
+def explanation_from_dict(data: dict[str, Any], model: str) -> Explanation:
+    return _explanation_from(
+        data, model, tuple(data.get("sources", [])), str(data.get("notice") or "")
     )
 
 
@@ -296,6 +408,7 @@ class Explainer:
         probabilities: Probabilities,
         scoreline: Scoreline | None = None,
         facts: FactsPackage | None = None,
+        markets: MarketsTable | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "match": {
@@ -342,6 +455,14 @@ class Explainer:
                 "expected_home": round(scoreline.expected_home, 3),
                 "expected_away": round(scoreline.expected_away, 3),
             }
+        if markets is not None:
+            payload["markets"] = [m.to_dict() for m in markets.sorted() if m.available]
+            payload["markets_unavailable"] = [
+                {"id": m.key, "label": m.label, "note": m.note}
+                for m in markets.sorted()
+                if not m.available
+            ]
+            payload["markets_method"] = markets.method
         return payload
 
     def cache_key(self, user: str) -> str:
@@ -355,11 +476,12 @@ class Explainer:
         probabilities: Probabilities,
         scoreline: Scoreline | None = None,
         facts: FactsPackage | None = None,
+        markets: MarketsTable | None = None,
     ) -> Explanation | None:
         """Return a validated analysis, None without an LLM, or raise LLMError."""
         if self._llm is None:
             return None
-        payload = self.build_prompt(match, features, probabilities, scoreline, facts)
+        payload = self.build_prompt(match, features, probabilities, scoreline, facts, markets)
         user = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         sources = facts.sources if facts else ()
         key = self.cache_key(user)
@@ -367,13 +489,15 @@ class Explainer:
             cached = self._cache.get(key)
             if cached is not None:
                 try:
-                    return _explanation_from(cached["parsed"], cached["model"], sources)
+                    return _explanation_from(
+                        cached["parsed"], cached["model"], sources, cached.get("notice", "")
+                    )
                 except (KeyError, TypeError) as exc:
                     log.warning("Ignoring malformed LLM cache entry: %s", exc)
         history_rate = history_rate_from(facts)
         reply = self._llm.chat(SYSTEM_PROMPT, user, temperature=0.2, json_mode=True)
         try:
-            parsed = parse_analysis(reply.text, probabilities, features, history_rate)
+            parsed = parse_analysis(reply.text, probabilities, features, history_rate, markets)
         except _Invalid as first:
             log.warning("LLM answer rejected (%s); retrying once", first)
             retry_user = (
@@ -382,11 +506,11 @@ class Explainer:
             )
             reply = self._llm.chat(SYSTEM_PROMPT, retry_user, temperature=0.0, json_mode=True)
             try:
-                parsed = parse_analysis(reply.text, probabilities, features, history_rate)
+                parsed = parse_analysis(reply.text, probabilities, features, history_rate, markets)
             except _Invalid as second:
                 raise ExplanationError(
                     f"Модель вернула некорректный разбор дважды: {second}."
                 ) from second
         if self._cache is not None:
-            self._cache.put(key, {"parsed": parsed, "model": reply.model})
-        return _explanation_from(parsed, reply.model, sources)
+            self._cache.put(key, {"parsed": parsed, "model": reply.model, "notice": reply.notice})
+        return _explanation_from(parsed, reply.model, sources, reply.notice)
