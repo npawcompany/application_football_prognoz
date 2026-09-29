@@ -184,6 +184,31 @@ def areas(infos: Iterable[LeagueInfo]) -> list[str]:
     return sorted({area_of(info.competition) for info in infos}, key=str.casefold)
 
 
+@dataclass(frozen=True)
+class AreaOption:
+    """One entry of the «Страна / регион» filter: name, API area code/flag, league count."""
+
+    name: str
+    code: str | None
+    flag_url: str | None
+    count: int
+
+
+def area_options(infos: Iterable[LeagueInfo]) -> list[AreaOption]:
+    found: dict[str, list] = {}
+    for info in infos:
+        comp = info.competition
+        name = area_of(comp)
+        entry = found.setdefault(name, [None, None, 0])
+        entry[0] = entry[0] or comp.area_code
+        entry[1] = entry[1] or comp.area_flag
+        entry[2] += 1
+    return [
+        AreaOption(name, code, flag, count)
+        for name, (code, flag, count) in sorted(found.items(), key=lambda kv: kv[0].casefold())
+    ]
+
+
 def group_teams_by_league(
     teams_by_code: Mapping[str, Sequence[Team]],
     competitions: Iterable[Competition],

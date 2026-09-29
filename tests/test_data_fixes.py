@@ -311,3 +311,16 @@ def test_check_key_tells_rejected_key_from_no_network(tmp_path: Path) -> None:
     client.fail = FootballDataError("Нет связи с football-data.org")
     result = service.check_key()
     assert (result.ok, result.rejected) == (False, False)
+
+
+def test_cached_match_days_marks_the_picker_month_without_http(tmp_path: Path) -> None:
+    service, client, _store = _service(tmp_path)
+    now = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+    service.day_matches(date(2026, 10, 3), tz=UTC, now=now)
+    calls = len(client.calls)
+    days = service.cached_match_days(date(2026, 10, 1), date(2026, 10, 31), tz=UTC)
+    assert days == [date(2026, 10, 1), date(2026, 10, 3)]
+    assert service.cached_match_days(
+        date(2026, 10, 1), date(2026, 10, 31), codes=["PL"], tz=UTC
+    ) == [date(2026, 10, 3)]
+    assert len(client.calls) == calls  # SQLite only

@@ -193,3 +193,63 @@ def format_day_ru(day: date, today: date | None = None) -> str:
     delta = (day - reference).days
     prefix = {0: "Сегодня", 1: "Завтра", -1: "Вчера"}.get(delta, weekdays[day.weekday()])
     return f"{prefix}, {base}"
+
+
+# --- month picker (Russian, weeks start on Monday) ------------------------------------
+
+MONTHS_RU = (
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
+)
+WEEKDAYS_SHORT_RU = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+
+
+def month_title_ru(month: date) -> str:
+    return f"{MONTHS_RU[month.month - 1]} {month.year}"
+
+
+def first_of_month(day: date) -> date:
+    return day.replace(day=1)
+
+
+def shift_month(month: date, step: int) -> date:
+    index = month.year * 12 + (month.month - 1) + step
+    return date(index // 12, index % 12 + 1, 1)
+
+
+def month_grid(month: date) -> list[list[date | None]]:
+    """Weeks of the month, Monday first; None pads the days of other months."""
+    first = first_of_month(month)
+    last = shift_month(first, 1) - timedelta(days=1)
+    weeks: list[list[date | None]] = []
+    week: list[date | None] = [None] * first.weekday()
+    current = first
+    while current <= last:
+        week.append(current)
+        if len(week) == 7:
+            weeks.append(week)
+            week = []
+        current += timedelta(days=1)
+    if week:
+        weeks.append(week + [None] * (7 - len(week)))
+    return weeks
+
+
+def month_bounds(month: date) -> tuple[date, date]:
+    first = first_of_month(month)
+    return first, shift_month(first, 1) - timedelta(days=1)
+
+
+def by_kickoff(matches: Iterable[Match]) -> list[Match]:
+    """Plain day list for the picker: by kick-off time, then home club."""
+    return sorted(matches, key=lambda m: (m.utc_date, m.home_name.casefold(), m.id))

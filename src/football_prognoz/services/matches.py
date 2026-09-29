@@ -22,7 +22,13 @@ from football_prognoz.domain.match import Match, MatchLineup
 from football_prognoz.domain.prediction import MatchForecast, Probabilities
 from football_prognoz.domain.team import Competition, StandingRow, Team, TeamRoster
 from football_prognoz.models.predictor import Predictor
-from football_prognoz.services.calendar import day_bounds, local_tz, request_range, week_window
+from football_prognoz.services.calendar import (
+    day_bounds,
+    local_tz,
+    match_days,
+    request_range,
+    week_window,
+)
 from football_prognoz.services.calibration import (
     calibration,
     export_calibration_csv,
@@ -342,6 +348,20 @@ class MatchService:
         """SQLite only — lets the UI paint a day instantly while the refresh runs."""
         start, end = day_bounds(day, tz or local_tz())
         return self._store.list_matches_between(start, end, codes)
+
+    def cached_match_days(
+        self,
+        first: date,
+        last: date,
+        *,
+        codes: list[str] | tuple[str, ...] | None = None,
+        tz: tzinfo | None = None,
+    ) -> list[date]:
+        """Local days between `first` and `last` that have cached matches (SQLite only)."""
+        zone = tz or local_tz()
+        start, _ = day_bounds(first, zone)
+        _, end = day_bounds(last, zone)
+        return match_days(self._store.list_matches_between(start, end, codes), zone)
 
     # --- leagues availability / favourite pickers ---------------------------------
 
