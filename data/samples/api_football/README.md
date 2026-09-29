@@ -11,6 +11,7 @@ Official examples copied verbatim from the API-Football OpenAPI spec v3.9.3
 - `transfers.json` — `GET /transfers?player=35845`
 - `fixtures_lineups.json` — `GET /fixtures/lineups?fixture=592872`
 - `fixtures_players.json` — `GET /fixtures/players?fixture=169080`
+- `fixtures_statistics.json` — `GET /fixtures/statistics?fixture=215662&team=463`
 
 Synthetic files in the same schema (Premier League names/ids for matching tests):
 

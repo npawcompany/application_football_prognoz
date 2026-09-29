@@ -290,6 +290,9 @@ class ApiFootballClient:
     def fixture_players(self, fixture_id: int) -> list[dict[str, Any]]:
         return self.get("/fixtures/players", {"fixture": fixture_id})
 
+    def fixture_statistics(self, fixture_id: int) -> list[dict[str, Any]]:
+        return self.get("/fixtures/statistics", {"fixture": fixture_id})
+
 
 # --- parsers (pure; operate on the `response` list) ------------------------------
 
@@ -389,6 +392,81 @@ def parse_cards(items: list[Any], fixture_id: int, fixture_date: str) -> dict[in
             )
         )
     return grouped
+
+
+STAT_TYPES = {
+    "corner kicks": "corners",
+    "fouls": "fouls",
+    "yellow cards": "yellow",
+    "red cards": "red",
+}
+
+
+def _stat_number(value: Any) -> float | None:
+    """`value` is an int, null (= none happened) or a string like "32%"."""
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    text = str(value).strip().rstrip("%")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_fixture_statistics(items: list[Any]) -> dict[int, dict[str, float]]:
+    """`GET /fixtures/statistics`: team id -> {corners, fouls, yellow, red}.
+
+    A null value means the event did not happen (e.g. `Red Cards: null`), so it counts
+    as 0. Types we do not use are skipped.
+    """
+    out: dict[int, dict[str, float]] = {}
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        team_id = _int((raw.get("team") or {}).get("id"))
+        stats = raw.get("statistics")
+        if not team_id or not isinstance(stats, list):
+            continue
+        row: dict[str, float] = {}
+        for entry in stats:
+            if not isinstance(entry, dict):
+                continue
+            key = STAT_TYPES.get(str(entry.get("type") or "").strip().lower())
+            if key is None:
+                continue
+            number = _stat_number(entry.get("value"))
+            if number is not None:
+                row[key] = number
+        if row:
+            out[team_id] = row
+    return out
+
+
+def parse_penalties(items: list[Any]) -> dict[int, int]:
+    """Penalties awarded per team from `GET /fixtures/events`.
+
+    `type = Goal` with `detail = Penalty` (scored) or `Missed Penalty`; shoot-out kicks
+    (`comments` "Penalty Shootout" or minute > 120) are excluded.
+    """
+    counts: dict[int, int] = {}
+    for raw in items:
+        if not isinstance(raw, dict) or str(raw.get("type") or "").lower() != "goal":
+            continue
+        detail = str(raw.get("detail") or "").strip().lower()
+        if detail not in {"penalty", "missed penalty"}:
+            continue
+        comments = str(raw.get("comments") or "").lower()
+        minute = _int((raw.get("time") or {}).get("elapsed")) or 0
+        if "shootout" in comments or minute > 120:
+            continue
+        team_id = _int((raw.get("team") or {}).get("id"))
+        if team_id:
+            counts[team_id] = counts.get(team_id, 0) + 1
+    return counts
 
 
 def parse_transfers(items: list[Any], team_id: int, *, since: str) -> list[Transfer]:
