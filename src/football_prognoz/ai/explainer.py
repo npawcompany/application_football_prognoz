@@ -27,7 +27,7 @@ from football_prognoz.domain.prediction import (
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "analysis-v2"
+PROMPT_VERSION = "analysis-v3"
 
 SYSTEM_PROMPT = """You explain football statistical forecasts for a desktop app.
 You receive JSON with: match, probabilities (1X2 computed by a local Elo + Poisson model;
@@ -35,7 +35,9 @@ they are FINAL), favorite ("1" home, "X" draw, "2" away), facts, context (Elo ga
 home/away records, goal trends, standings, head-to-head, rest days), an optional
 preliminary_score, an optional player_status block (absences, recent red cards,
 transfers, lineups, ratings), an optional news block (recent media headlines per team
-with topic) and data_sources.
+with topic), an optional historical_accuracy block (how past pre-match forecasts of this
+model performed, incl. how often outcomes with a similar probability came true) and
+data_sources.
 
 Return ONLY one JSON object, no markdown, with exactly these keys:
 {
@@ -62,6 +64,9 @@ Rules:
 - Never claim a guaranteed or certain outcome. Use cautious wording.
 - "confidence": low when the sample is small or probabilities are close; high only
   when one outcome clearly dominates and the sample is large.
+- If historical_accuracy is present, ground "confidence" and "confidence_reason" in it
+  (e.g. "исторически такие прогнозы сбывались в 48% случаев"). It never changes the
+  probabilities of this match. If it is null, do not mention past accuracy.
 - If a preliminary score is present, you may mention it with its probability; it is
   not a guarantee.
 - Do not give betting advice.
@@ -119,14 +124,36 @@ class _Invalid(ValueError):
     pass
 
 
-def confidence_cap(probabilities: Probabilities, features: MatchFeatures) -> str:
-    """Highest honest confidence for these numbers (documented in docs/FORECAST.md)."""
+HISTORY_MEDIUM_BELOW = 0.5  # similar past forecasts came true less often -> max medium
+
+
+def confidence_cap(
+    probabilities: Probabilities,
+    features: MatchFeatures,
+    history_rate: float | None = None,
+) -> str:
+    """Highest honest confidence for these numbers (documented in docs/FORECAST.md).
+
+    `history_rate`: observed hit rate of past forecasts with a similar probability
+    (only passed when the sample is large enough)."""
     top = max(probabilities.home, probabilities.draw, probabilities.away)
     if features.sample_matches < 4 or top < 0.40:
         return "low"
     if top < 0.55 or features.sample_matches < 10:
         return "medium"
+    if history_rate is not None and history_rate < HISTORY_MEDIUM_BELOW:
+        return "medium"
     return "high"
+
+
+def history_rate_from(facts: FactsPackage | None) -> float | None:
+    if facts is None:
+        return None
+    block = facts.data.get("historical_accuracy")
+    if not isinstance(block, dict) or not isinstance(block.get("similar_probability"), dict):
+        return None
+    rate = block["similar_probability"].get("observed_rate")
+    return float(rate) if isinstance(rate, int | float) else None
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -186,6 +213,7 @@ def parse_analysis(
     text: str,
     probabilities: Probabilities,
     features: MatchFeatures,
+    history_rate: float | None = None,
 ) -> dict[str, Any]:
     """Validate the model answer. Returns normalized fields or raises _Invalid."""
     data = _extract_json(text)
@@ -205,10 +233,13 @@ def parse_analysis(
         [summary, verdict, reason]
         + [f.factor + " " + f.effect for f in home_factors + away_factors]
     )
-    cap = confidence_cap(probabilities, features)
+    cap = confidence_cap(probabilities, features, history_rate)
     if CONFIDENCE_LEVELS.index(confidence) > CONFIDENCE_LEVELS.index(cap):
         confidence = cap
-        note = "Уровень уверенности снижен приложением: мала выборка или близкие вероятности."
+        note = (
+            "Уровень уверенности снижен приложением: мала выборка, близкие вероятности "
+            "или похожие прогнозы в прошлом сбывались реже чем в половине случаев."
+        )
         reason = f"{reason} {note}".strip()
     return {
         "summary": summary,
@@ -297,10 +328,11 @@ class Explainer:
             "data_sources": list(facts.sources) if facts else [],
         }
         if facts is not None:
-            lifted = {"player_status", "news"}
+            lifted = {"player_status", "news", "historical_accuracy"}
             payload["context"] = {k: v for k, v in facts.data.items() if k not in lifted}
             payload["player_status"] = facts.data.get("player_status")
             payload["news"] = facts.data.get("news")
+            payload["historical_accuracy"] = facts.data.get("historical_accuracy")
         if scoreline is not None:
             payload["preliminary_score"] = {
                 "label": scoreline.label,
@@ -338,9 +370,10 @@ class Explainer:
                     return _explanation_from(cached["parsed"], cached["model"], sources)
                 except (KeyError, TypeError) as exc:
                     log.warning("Ignoring malformed LLM cache entry: %s", exc)
+        history_rate = history_rate_from(facts)
         reply = self._llm.chat(SYSTEM_PROMPT, user, temperature=0.2, json_mode=True)
         try:
-            parsed = parse_analysis(reply.text, probabilities, features)
+            parsed = parse_analysis(reply.text, probabilities, features, history_rate)
         except _Invalid as first:
             log.warning("LLM answer rejected (%s); retrying once", first)
             retry_user = (
@@ -349,7 +382,7 @@ class Explainer:
             )
             reply = self._llm.chat(SYSTEM_PROMPT, retry_user, temperature=0.0, json_mode=True)
             try:
-                parsed = parse_analysis(reply.text, probabilities, features)
+                parsed = parse_analysis(reply.text, probabilities, features, history_rate)
             except _Invalid as second:
                 raise ExplanationError(
                     f"Модель вернула некорректный разбор дважды: {second}."

@@ -115,6 +115,20 @@ def _fact_grid(facts: list[ft.Control], columns: int) -> ft.Control:
     return ft.Column(rows, spacing=10, tight=True)
 
 
+def _history_hint_row(forecast: MatchForecast, width: int) -> list[ft.Control]:
+    """'Historically such an outcome came true in N%' — hidden when data is too thin."""
+    hint = forecast.history_hint
+    if hint is None:
+        return []
+    return [
+        ft.Text(
+            f"{hint.text} Это статистика прошлых прогнозов, вероятности выше не меняются.",
+            size=scaled(12, width),
+            color=MUTED,
+        )
+    ]
+
+
 def match_detail_view(
     forecast: MatchForecast | None,
     *,
@@ -244,6 +258,7 @@ def match_detail_view(
                 compact=runs == 1,
                 window_width=layout_width,
             ),
+            *_history_hint_row(forecast, layout_width),
             preliminary_score_card(
                 forecast.scoreline,
                 match,

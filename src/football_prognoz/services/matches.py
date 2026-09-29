@@ -5,6 +5,8 @@ import threading
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 from football_prognoz.ai.explainer import Explainer
 from football_prognoz.ai.ollama import LLMError
@@ -15,11 +17,18 @@ from football_prognoz.data.store import (
     TTL_SCHEDULED_HOURS,
     SQLiteStore,
 )
-from football_prognoz.domain.history import CollectionResult
+from football_prognoz.domain.history import CalibrationReport, CollectionResult, HistoricalHint
 from football_prognoz.domain.match import Match, MatchLineup
-from football_prognoz.domain.prediction import MatchForecast
+from football_prognoz.domain.prediction import MatchForecast, Probabilities
 from football_prognoz.domain.team import Competition, StandingRow, Team, TeamRoster
 from football_prognoz.models.predictor import Predictor
+from football_prognoz.services.calibration import (
+    calibration,
+    export_calibration_csv,
+    export_csv,
+    historical_hint,
+    llm_summary,
+)
 from football_prognoz.services.facts import SRC_FOOTBALL_DATA, SRC_MODEL, FactsService
 from football_prognoz.services.features import FeatureService
 from football_prognoz.services.history import ForecastHistoryService, Progress
@@ -56,6 +65,7 @@ class MatchService:
         self._news = news
         self._facts = FactsService(store)
         self._history = self._make_history()
+        self._calibration: tuple[tuple[int, str | None], CalibrationReport] | None = None
 
     @property
     def llm_enabled(self) -> bool:
@@ -102,6 +112,23 @@ class MatchService:
     ) -> CollectionResult:
         """Store forecasts for upcoming / recent matches of `codes` and fill results."""
         return self._history.collect(codes, progress=progress, cancel=cancel)
+
+    def calibration_report(self) -> CalibrationReport:
+        """Quality of stored pre-match forecasts for the current model version (cached)."""
+        version = self._history.model_version
+        stamp = self._store.forecast_history_stamp(version)
+        if self._calibration is None or self._calibration[0] != stamp:
+            self._calibration = (stamp, calibration(self._history.records(), version))
+        return self._calibration[1]
+
+    def export_history(self, directory: Path) -> tuple[Path, Path, int]:
+        """Write forecast_history + calibration summary as CSV (VKR §3.3)."""
+        stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        records_path = directory / f"forecast_history_{stamp}.csv"
+        summary_path = directory / f"forecast_calibration_{stamp}.csv"
+        rows = export_csv(self._store.list_forecast_records(), records_path)
+        export_calibration_csv(self.calibration_report(), summary_path)
+        return records_path, summary_path, rows
 
     def ping(self) -> list[Competition]:
         return self._client.ping()
@@ -265,10 +292,18 @@ class MatchService:
             away_roster=away_roster,
             lineup=lineup,
             sources=BASE_SOURCES,
+            history_hint=self._history_hint(probabilities),
         )
         if explain:
             return self.enrich(result, explain=True)
         return result
+
+    def _history_hint(self, probabilities: Probabilities) -> HistoricalHint | None:
+        try:
+            return historical_hint(self.calibration_report(), probabilities)
+        except Exception as exc:  # noqa: BLE001 — a stats problem must not break a forecast
+            log.warning("Historical hint failed: %s", exc)
+            return None
 
     def attach_player_status(self, forecast: MatchForecast) -> MatchForecast:
         """Add API-Football facts. Zero HTTP calls when API_FOOTBALL_KEY is not set."""
@@ -310,6 +345,7 @@ class MatchService:
             forecast.scoreline,
             forecast.player_status,
             forecast.news,
+            self._history_summary(forecast),
         )
         try:
             explanation = self._explainer.explain(
@@ -331,6 +367,13 @@ class MatchService:
             explanation_error=None,
             sources=tuple(dict.fromkeys(forecast.sources + sources)),
         )
+
+    def _history_summary(self, forecast: MatchForecast) -> dict[str, Any] | None:
+        try:
+            return llm_summary(self.calibration_report(), forecast.history_hint)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("History summary failed: %s", exc)
+            return None
 
     def enrich(self, forecast: MatchForecast, *, explain: bool = True) -> MatchForecast:
         """Background step after the numbers are shown: player status, then LLM."""

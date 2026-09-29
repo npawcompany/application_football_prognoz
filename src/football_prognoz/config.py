@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+EXPORTS_DIR = ROOT_DIR / "data" / "exports"  # CSV for VKR §3.3 (git-ignored)
 ENV_PATH = ROOT_DIR / ".env"
 
 OLLAMA_CLOUD_HOST = "https://ollama.com"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from football_prognoz.ai.explainer import Explainer
@@ -246,3 +247,110 @@ def test_match_service_collect_training_data_uses_league_refresh(
     assert client.calls == 1
     assert result.cancelled is False
     assert result.errors == ()
+
+
+def _seed_history(store, n: int, hit_every: int) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from football_prognoz.domain.history import ForecastRecord
+
+    base = datetime(2025, 1, 1, 15, tzinfo=UTC)
+    for i in range(n):
+        actual = "1" if i % hit_every == 0 else "2"
+        store.insert_forecast_record(
+            ForecastRecord(
+                match_id=90_000 + i,
+                model_version="elo-poisson-v1",
+                competition_code="PL",
+                kickoff_utc=base + timedelta(days=i),
+                home_id=1,
+                home_name="A",
+                away_id=2,
+                away_name="B",
+                p_home=0.45,
+                p_draw=0.3,
+                p_away=0.25,
+                predicted_outcome="1",
+                predicted_score="1:0",
+                score_probability=0.1,
+                expected_home=1.4,
+                expected_away=1.0,
+                likely_outcomes=(),
+                facts={},
+                sources=(),
+                sample_matches=20,
+                forecast_at=base + timedelta(days=i) - timedelta(hours=3),
+                made_after_kickoff=False,
+                status="finished",
+                actual_home=1 if actual == "1" else 0,
+                actual_away=0 if actual == "1" else 1,
+                actual_outcome=actual,
+                is_correct=actual == "1",
+            )
+        )
+
+
+def test_forecast_gets_history_hint_and_llm_gets_summary(
+    tmp_path: Path, matches_payload: dict
+) -> None:
+    store = _store(tmp_path, matches_payload)
+    captured: dict = {}
+
+    class _CaptureLLM:
+        def chat(self, system: str, user: str, **_kwargs) -> LLMReply:
+            captured["user"] = json.loads(user)
+            raise LLMError("stop", 500)
+
+    service = MatchService(
+        client=object(),  # type: ignore[arg-type]
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(_CaptureLLM(), "m"),
+    )
+    match = service.get_match(201)
+    assert match is not None
+    plain = service.forecast(match, explain=False)
+    assert plain.history_hint is None  # no history yet -> hidden
+    fav = plain.probabilities.favorite_label
+    p = {"1": plain.probabilities.home, "X": plain.probabilities.draw}.get(
+        fav, plain.probabilities.away
+    )
+    # Seed 40 evaluated forecasts in the same 10%-bucket as this forecast's favorite.
+    _seed_history(store, 40, 4)
+    with sqlite3.connect(store.path) as conn:
+        conn.execute("UPDATE forecast_history SET p_home = ?", (p,))
+    service = MatchService(
+        client=object(),  # type: ignore[arg-type]
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(_CaptureLLM(), "m"),
+    )
+    forecast = service.forecast(match, explain=False)
+    assert forecast.probabilities == plain.probabilities  # history never changes numbers
+    assert forecast.history_hint is not None
+    assert forecast.history_hint.sample >= 40
+    service.explain_forecast(forecast)
+    block = captured["user"]["historical_accuracy"]
+    assert block["evaluated_prematch_forecasts"] == 40
+    assert block["hit_rate"] == 0.25
+    assert "historical_accuracy" not in captured["user"]["context"]
+    report = service.calibration_report()
+    assert report is service.calibration_report()  # cached until the table changes
+
+
+def test_export_history_writes_two_csv_files(tmp_path: Path, matches_payload: dict) -> None:
+    store = _store(tmp_path, matches_payload)
+    _seed_history(store, 5, 2)
+    service = MatchService(
+        client=object(),  # type: ignore[arg-type]
+        store=store,
+        features=FeatureService(store),
+        predictor=Predictor(),
+        explainer=Explainer(None, "m"),
+    )
+    records_path, summary_path, rows = service.export_history(tmp_path / "exports")
+    assert rows == 5
+    assert records_path.exists() and summary_path.exists()
+    assert records_path.read_text(encoding="utf-8").startswith("match_id,model_version")

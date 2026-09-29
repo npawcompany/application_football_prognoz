@@ -574,6 +574,14 @@ class _TrainingService(FakeMatchService):
             progress(2, 2, "Gamma — Delta")
         return CollectionResult(inserted=2, total=2, cancelled=bool(cancel and cancel.is_set()))
 
+    def calibration_report(self):
+        from football_prognoz.domain.history import CalibrationReport
+
+        return CalibrationReport("elo-poisson-v1", 0, 0, None, None, None, {}, ())
+
+    def export_history(self, directory):
+        return directory / "h.csv", directory / "c.csv", 7
+
 
 def _settings_app(service, **settings_kwargs):
     app, page, _ = _app(service=service, settings=_settings(**settings_kwargs))
@@ -642,3 +650,24 @@ def test_training_failure_is_shown() -> None:
     asyncio.run(job[0](*job[1], **job[2]))
     assert app.training.running is False
     assert "disk full" in (app.training.error or "")
+
+
+def test_training_done_shows_quality_stats() -> None:
+    service = _TrainingService()
+    app, page = _settings_app(service, favorite_leagues="PL")
+    app._start_training()
+    job = page.scheduled[-1]
+    asyncio.run(job[0](*job[1], **job[2]))
+    assert any("пока нет завершённых матчей" in line for line in app.training.stats)
+
+
+def test_export_history_writes_csv_in_background() -> None:
+    service = _TrainingService()
+    app, page = _settings_app(service)
+    before = len(page.scheduled)
+    app._export_history()
+    assert len(page.scheduled) == before + 1
+    job = page.scheduled[-1]
+    asyncio.run(job[0](*job[1], **job[2]))
+    assert "h.csv (7 строк)" in (app.training.export_path or "")
+    assert "c.csv" in (app.training.export_path or "")

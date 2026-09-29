@@ -10,6 +10,7 @@ import flet as ft
 from football_prognoz.config import (
     DEFAULT_OLLAMA_FALLBACK_MODEL,
     DEFAULT_OLLAMA_MODEL,
+    EXPORTS_DIR,
     OLLAMA_CLOUD_HOST,
     Settings,
     load_settings,
@@ -34,7 +35,11 @@ from football_prognoz.ui.components.ai_analysis import (
 )
 from football_prognoz.ui.components.settings_panel import SettingsForm
 from football_prognoz.ui.components.splash import splash_view
-from football_prognoz.ui.components.training_panel import TrainingState, training_panel
+from football_prognoz.ui.components.training_panel import (
+    TrainingState,
+    calibration_lines,
+    training_panel,
+)
 from football_prognoz.ui.motion import PAGE_CURSOR, with_cursor
 from football_prognoz.ui.notify import notify_user
 from football_prognoz.ui.runtime import (
@@ -521,6 +526,7 @@ class FootballApp:
                 self.training,
                 on_collect=self._start_training,
                 on_cancel=self._cancel_training,
+                on_export=self._export_history,
                 window_width=width,
             ),
         )
@@ -912,7 +918,8 @@ class FootballApp:
             post_to_ui(self.page, apply)
 
         def work():
-            return service.collect_training_data(codes, progress=progress, cancel=cancel)
+            result = service.collect_training_data(codes, progress=progress, cancel=cancel)
+            return result, service.calibration_report()
 
         run_detached(self.page, work, self._on_training_done, self._on_training_fail)
 
@@ -922,7 +929,8 @@ class FootballApp:
             self.training = replace(self.training, cancelling=True)
             self._repaint_training(force=True)
 
-    def _on_training_done(self, result) -> None:
+    def _on_training_done(self, outcome) -> None:
+        result, report = outcome
         self._training_cancel = None
         self.training = replace(
             self.training,
@@ -931,6 +939,7 @@ class FootballApp:
             result=result.summary,
             error=None,
             errors=tuple(result.errors),
+            stats=calibration_lines(report),
         )
         self._repaint_training(force=True)
         self._notify(result.summary, kind="info" if result.cancelled else "success")
@@ -945,6 +954,32 @@ class FootballApp:
         )
         self._repaint_training(force=True)
         self._notify(f"Сбор данных не удался: {message}", kind="error")
+
+    def _export_history(self) -> None:
+        if self.training.running:
+            return
+        service = self.service
+
+        def work():
+            records_path, summary_path, rows = service.export_history(EXPORTS_DIR)
+            return records_path, summary_path, rows, service.calibration_report()
+
+        def ok(outcome) -> None:
+            records_path, summary_path, rows, report = outcome
+            self.training = replace(
+                self.training,
+                export_path=f"{records_path} ({rows} строк); сводка: {summary_path}",
+                stats=calibration_lines(report),
+                error=None,
+            )
+            self._repaint_training(force=True)
+            self._notify(f"История прогнозов выгружена: {rows} строк.", kind="success")
+
+        def fail(message: str) -> None:
+            self.training = replace(self.training, error=f"Экспорт не удался: {message}")
+            self._repaint_training(force=True)
+
+        run_detached(self.page, work, ok, fail)
 
     def _clear_cache(self) -> None:
         self.loading = True

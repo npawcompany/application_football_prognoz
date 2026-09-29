@@ -427,3 +427,36 @@ def test_settings_view_embeds_training_panel() -> None:
         training=ft.Text("TRAINING-PANEL"),
     )
     assert "TRAINING-PANEL" in _blob(view)
+
+
+def test_match_detail_history_hint_shown_only_when_present() -> None:
+    from dataclasses import replace
+
+    from football_prognoz.domain.history import HistoricalHint
+
+    assert "Исторически такой исход" not in _detail(_forecast())
+    hint = HistoricalHint("1", 0.41, "40–50%", 0.47, 58)
+    blob = _detail(replace(_forecast(), history_hint=hint))
+    assert "Исторически такой исход сбывался в 47% случаев" in blob
+    assert "выборка: 58 прогнозов с вероятностью 40–50%" in blob
+
+
+def test_calibration_lines_format() -> None:
+    from football_prognoz.domain.history import CalibrationBucket, CalibrationReport
+    from football_prognoz.ui.components.training_panel import calibration_lines
+
+    report = CalibrationReport(
+        "elo-poisson-v1",
+        50,
+        3,
+        0.52,
+        0.601,
+        1.002,
+        {"1": (30, 0.6), "X": (5, 0.2), "2": (15, 0.47)},
+        (CalibrationBucket(0.4, 0.5, 60, 0.45, 0.43),),
+    )
+    lines = calibration_lines(report)
+    assert lines[0].startswith("Оценено прогнозов до матча: 50")
+    assert "Точность исхода: 52% · Brier: 0.601 · log-loss: 1.002" in lines[1]
+    assert "победа хозяев — 60% из 30" in lines[2]
+    assert "Вероятность 40–50%: в среднем 45%, сбылось 43% (n=60)" in lines[3]

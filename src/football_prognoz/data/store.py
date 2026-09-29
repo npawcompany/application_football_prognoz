@@ -50,7 +50,7 @@ def _record_values(record: ForecastRecord) -> dict[str, object]:
         "expected_home": record.expected_home,
         "expected_away": record.expected_away,
         "likely_outcomes": json.dumps(list(record.likely_outcomes), ensure_ascii=False),
-        "facts": json.dumps(record.facts, ensure_ascii=False, sort_keys=True, default=str),
+        "facts": json.dumps(record.facts, ensure_ascii=False, sort_keys=True),
         "sources": json.dumps(list(record.sources), ensure_ascii=False),
         "sample_matches": record.sample_matches,
         "forecast_at": _iso(record.forecast_at),
@@ -586,6 +586,15 @@ class SQLiteStore:
                 ),
             )
             return cursor.rowcount > 0
+
+    def forecast_history_stamp(self, model_version: str) -> tuple[int, str | None]:
+        """(row count, last update) — lets callers cache derived statistics."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*), MAX(updated_at) FROM forecast_history WHERE model_version = ?",
+                (model_version,),
+            ).fetchone()
+        return int(row[0]), row[1]
 
     def list_forecast_records(
         self,

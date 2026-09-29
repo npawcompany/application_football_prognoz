@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 import flet as ft
 
+from football_prognoz.domain.history import CalibrationReport
 from football_prognoz.ui.motion import apply_motion, with_cursor
 from football_prognoz.ui.theme import ACCENT, CARD, FG, MUTED, glass_border, scaled
 
@@ -30,6 +31,35 @@ class TrainingState:
         if not self.running or self.total <= 0:
             return None
         return min(1.0, self.done / self.total)
+
+
+OUTCOME_NAMES = {"1": "победа хозяев", "X": "ничья", "2": "победа гостей"}
+
+
+def _pct(value: float | None) -> str:
+    return "—" if value is None else f"{round(value * 100)}%"
+
+
+def calibration_lines(report: CalibrationReport) -> tuple[str, ...]:
+    """Short Russian quality summary for the panel (VKR §3.3)."""
+    if report.evaluated == 0:
+        return ("Оценка качества: пока нет завершённых матчей с прогнозом, сделанным до начала.",)
+    lines = [
+        f"Оценено прогнозов до матча: {report.evaluated} (модель {report.model_version}); "
+        f"после начала, исключено: {report.excluded_post_kickoff}.",
+        f"Точность исхода: {_pct(report.accuracy)} · Brier: {report.brier:.3f} · "
+        f"log-loss: {report.log_loss:.3f}",
+    ]
+    parts = []
+    for label, (count, rate) in report.hit_rate_by_outcome.items():
+        parts.append(f"{OUTCOME_NAMES[label]} — {_pct(rate)} из {count}")
+    lines.append("Когда модель ставила на исход, он сбывался: " + "; ".join(parts) + ".")
+    for bucket in report.buckets:
+        lines.append(
+            f"Вероятность {bucket.label}: в среднем {_pct(bucket.mean_predicted)}, "
+            f"сбылось {_pct(bucket.observed_rate)} (n={bucket.count})"
+        )
+    return tuple(lines)
 
 
 def training_panel(

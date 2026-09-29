@@ -23,6 +23,7 @@ from football_prognoz.models.elo import HOME_ADVANTAGE
 
 SRC_FOOTBALL_DATA = "football-data.org: календарь, результаты, таблица (кэш SQLite)"
 SRC_MODEL = "Локальная модель Elo + Пуассон (вероятности 1X2)"
+SRC_HISTORY = "История прогнозов приложения (SQLite forecast_history)"
 HOME_AWAY_WINDOW = 10
 _POINTS = {"W": 3, "D": 1, "L": 0}
 
@@ -179,6 +180,7 @@ class FactsService:
         scoreline: Scoreline | None = None,
         player_status: PlayerStatusReport | None = None,
         news: NewsReport | None = None,
+        history_summary: dict[str, Any] | None = None,
     ) -> FactsPackage:
         history = [
             item
@@ -275,6 +277,7 @@ class FactsService:
             },
             "player_status": player_status_facts(player_status),
             "news": news_facts(news),
+            "historical_accuracy": history_summary,
         }
         if scoreline is not None:
             data["preliminary_score"] = scoreline.label
@@ -283,4 +286,6 @@ class FactsService:
             sources.extend(player_status.sources)
         if news is not None and news.has_data():
             sources.extend(news.sources)
+        if history_summary is not None:
+            sources.append(SRC_HISTORY)
         return FactsPackage(data=data, sources=tuple(dict.fromkeys(sources)))

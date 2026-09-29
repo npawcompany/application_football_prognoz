@@ -126,10 +126,13 @@ class CalibrationReport:
     buckets: tuple[CalibrationBucket, ...]
 
     def bucket_for(self, probability: float) -> CalibrationBucket | None:
+        eps = 1e-9  # same edge rule as the binning in services.calibration
         for bucket in self.buckets:
-            if bucket.lower <= probability < bucket.upper or (
-                bucket.upper >= 1.0 and bucket.lower <= probability <= 1.0
-            ):
+            lower_ok = bucket.lower - eps <= probability
+            if bucket.upper >= 1.0:
+                if lower_ok and probability <= 1.0 + eps:
+                    return bucket
+            elif lower_ok and probability < bucket.upper - eps:
                 return bucket
         return None
 

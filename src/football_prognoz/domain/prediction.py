@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from football_prognoz.domain.history import HistoricalHint
 from football_prognoz.domain.match import Match, MatchLineup
 from football_prognoz.domain.news import NewsReport
 from football_prognoz.domain.player_status import PlayerStatusReport
@@ -123,5 +124,6 @@ class MatchForecast:
     lineup: MatchLineup | None = None
     player_status: PlayerStatusReport | None = None
     news: NewsReport | None = None
+    history_hint: HistoricalHint | None = None
     explanation_error: str | None = None
     sources: tuple[str, ...] = field(default_factory=tuple)
