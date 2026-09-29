@@ -9,7 +9,7 @@ from typing import Any
 
 import flet as ft
 
-from football_prognoz.ui.theme import AWAY, BG, CARD, DRAW, FG, MUTED, glass_border
+from football_prognoz.ui.theme import BG, CARD, DRAW, ERROR_BG, FG, MUTED, glass_border
 
 
 @dataclass
@@ -354,7 +354,7 @@ def error_banner(text: str) -> ft.Control:
             spacing=8,
             wrap=True,
         ),
-        bgcolor=AWAY,
+        bgcolor=ERROR_BG,
         padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         border_radius=10,
     )

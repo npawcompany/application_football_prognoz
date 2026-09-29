@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 
 import flet as ft
 
-from football_prognoz.ui.theme import BG
+from football_prognoz.ui.theme import PANE_BG
 
 __all__ = [
     "PAGE_CURSOR",
@@ -70,7 +70,7 @@ def scroll_pane(
     *,
     spacing: int = 12,
 ) -> ft.Control:
-    """Fill leftover pane space with theme BG instead of Material gray."""
+    """Transparent pane over the app gradient (never Material gray)."""
     return ft.Container(
         content=ft.ListView(
             list(controls),
@@ -79,5 +79,5 @@ def scroll_pane(
             padding=0,
         ),
         expand=True,
-        bgcolor=BG,
+        bgcolor=PANE_BG,
     )

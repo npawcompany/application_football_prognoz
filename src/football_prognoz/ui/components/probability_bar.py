@@ -356,7 +356,7 @@ def preliminary_score_card(
         "VS",
         size=scaled(42, window_width),
         weight=ft.FontWeight.BOLD,
-        color=ft.Colors.with_opacity(0.16, FG),
+        color=ft.Colors.with_opacity(0.28, FG),
     )
     if played and match is not None:
         exact = (score.home_goals, score.away_goals) == (match.score.home, match.score.away)

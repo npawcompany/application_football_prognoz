@@ -29,10 +29,10 @@ from football_prognoz.ui.motion import with_cursor
 from football_prognoz.ui.runtime import error_banner, info_banner, safe_update
 from football_prognoz.ui.theme import (
     ACCENT,
-    BG,
     BORDER,
     FG,
     MUTED,
+    PANE_BG,
     SURFACE,
     column_span,
     grid_columns,
@@ -151,7 +151,7 @@ class LeaguesPanel:
                 expand=True,
             ),
             expand=True,
-            bgcolor=BG,
+            bgcolor=PANE_BG,
         )
         self._sync()
 

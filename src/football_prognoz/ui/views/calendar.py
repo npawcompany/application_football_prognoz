@@ -34,10 +34,10 @@ from football_prognoz.ui.runtime import (
 )
 from football_prognoz.ui.theme import (
     ACCENT,
-    BG,
     BORDER,
     FG,
     MUTED,
+    PANE_BG,
     SURFACE,
     glass_border,
     use_stacked_match,
@@ -127,7 +127,7 @@ class CalendarPanel:
         self._banner = ft.Column([], spacing=6)
         self._list = ft.ListView(controls=[], expand=True, spacing=8, padding=0)
         self._disclaimer = ft.Container(content=disclaimer())
-        self.control = ft.Container(expand=True, bgcolor=BG, content=self._layout())
+        self.control = ft.Container(expand=True, bgcolor=PANE_BG, content=self._layout())
         self._sync_header()
         self._sync_list()
 

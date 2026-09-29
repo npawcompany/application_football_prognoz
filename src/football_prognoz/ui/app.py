@@ -63,6 +63,7 @@ from football_prognoz.ui.save_dialog import (
 from football_prognoz.ui.theme import (
     BG,
     BODY_PADDING,
+    PANE_BG,
     calendar_width,
     configure_window,
     content_width,
@@ -183,14 +184,14 @@ class FootballApp:
             load_picker_day=self._picker_day,
             load_picker_month=self._picker_month,
         )
-        self._pane = ft.Container(expand=True, padding=BODY_PADDING, bgcolor=BG)
+        self._pane = ft.Container(expand=True, padding=BODY_PADDING, bgcolor=PANE_BG)
         self.body = with_cursor(
-            ft.Container(expand=True, padding=0, bgcolor=BG),
+            ft.Container(expand=True, padding=0, bgcolor=PANE_BG),
             PAGE_CURSOR,
         )
         self.body.expand = True
-        self._left_slot = ft.Container(expand=3, bgcolor=BG, padding=ft.Padding.only(right=8))
-        self._right_slot = ft.Container(expand=2, bgcolor=BG, padding=ft.Padding.only(left=8))
+        self._left_slot = ft.Container(expand=3, bgcolor=PANE_BG, padding=ft.Padding.only(right=8))
+        self._right_slot = ft.Container(expand=2, bgcolor=PANE_BG, padding=ft.Padding.only(left=8))
         self._split_row = ft.Row(
             [
                 self._left_slot,
@@ -228,7 +229,7 @@ class FootballApp:
         page.appbar = ft.AppBar(
             title=ft.Text("Football Prognoz", size=16, weight=ft.FontWeight.W_600),
             center_title=False,
-            bgcolor=BG,
+            bgcolor=ft.Colors.with_opacity(0.55, BG),
             toolbar_height=44,
         )
         # Russian Material widgets (text menus, any system picker): weeks from Monday.
@@ -362,7 +363,7 @@ class FootballApp:
         return ft.NavigationRail(
             selected_index=self._nav_index(),
             min_width=88,
-            bgcolor=BG,
+            bgcolor=PANE_BG,
             destinations=[
                 ft.NavigationRailDestination(icon=icon, label=label)
                 for icon, label in self._destinations()

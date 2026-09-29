@@ -107,7 +107,7 @@ def league_card(
             ink=True,
             on_click=lambda _e, current=item: on_select(current),
             tooltip=f"{item.name}: {note}" if note else item.name,
-            opacity=0.45 if dimmed else 1.0,
+            opacity=0.8 if dimmed else 1.0,
         ),
         interactive=True,
     )

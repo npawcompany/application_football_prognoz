@@ -6,7 +6,7 @@ import flet as ft
 
 from football_prognoz.ui.motion import WAIT_CURSOR, with_cursor
 from football_prognoz.ui.runtime import is_mounted
-from football_prognoz.ui.theme import ACCENT, BG, FG, MUTED
+from football_prognoz.ui.theme import ACCENT, FG, MUTED, ON_ACCENT, PANE_BG
 
 SPIN_TURNS = 600  # one implicit rotation animation covers any realistic boot time
 SPIN_SECONDS_PER_TURN = 1.6
@@ -14,7 +14,7 @@ SPIN_SECONDS_PER_TURN = 1.6
 
 def _ball() -> ft.Container:
     return ft.Container(
-        content=ft.Icon(ft.Icons.SPORTS_SOCCER, color="#0F172A", size=34),
+        content=ft.Icon(ft.Icons.SPORTS_SOCCER, color=ON_ACCENT, size=34),
         width=64,
         height=64,
         bgcolor=ACCENT,
@@ -83,7 +83,7 @@ def splash_view(message: str, *, fraction: float | None = None) -> ft.Control:
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         expand=True,
-        bgcolor=BG,
+        bgcolor=PANE_BG,
         alignment=ft.Alignment.CENTER,
     )
     wrapped = with_cursor(body, WAIT_CURSOR)

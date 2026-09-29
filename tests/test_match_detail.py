@@ -11,7 +11,7 @@ from football_prognoz.domain.prediction import (
     Probabilities,
     Scoreline,
 )
-from football_prognoz.ui.theme import BG, scaled
+from football_prognoz.ui.theme import PANE_BG, scaled
 from football_prognoz.ui.views.match_detail import match_detail_view
 
 
@@ -78,7 +78,7 @@ def test_match_detail_shows_preliminary_score() -> None:
     blob = " ".join(_texts(view))
     assert "Исход матча" in blob
     assert isinstance(view, ft.Container)
-    assert view.bgcolor == BG
+    assert view.bgcolor == PANE_BG  # the app gradient shows through
     assert isinstance(view.content, ft.ListView)
     assert "Фаворит" in blob
     assert "Предварительный счёт" in blob

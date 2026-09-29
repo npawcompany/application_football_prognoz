@@ -12,7 +12,7 @@ from football_prognoz.ui.runtime import (
     run_background,
     show_preloader,
 )
-from football_prognoz.ui.theme import ACCENT, BG, FG
+from football_prognoz.ui.theme import ACCENT, FG, PANE_BG
 
 
 class _Handle:
@@ -164,7 +164,7 @@ def test_debounce_coalesces_same_key() -> None:
 def test_splash_view_indeterminate_and_determinate() -> None:
     boot = splash_view("Лиги")
     box = boot.content if hasattr(boot, "content") else boot
-    assert box.bgcolor == BG
+    assert box.bgcolor == PANE_BG
     assert box.alignment == ft.Alignment.CENTER
     column = box.content
     ball, title, subtitle, bar_box, status = column.controls

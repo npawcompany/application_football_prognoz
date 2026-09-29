@@ -22,11 +22,11 @@ from football_prognoz.ui.motion import apply_motion, with_cursor
 from football_prognoz.ui.runtime import error_banner, info_banner
 from football_prognoz.ui.theme import (
     ACCENT,
-    BG,
     BREAKPOINT_MEDIUM,
     CARD,
     FG,
     MUTED,
+    PANE_BG,
     SURFACE,
     glass_border,
     scaled,
@@ -724,5 +724,5 @@ def settings_view(
             expand=True,
         ),
         expand=True,
-        bgcolor=BG,
+        bgcolor=PANE_BG,
     )
