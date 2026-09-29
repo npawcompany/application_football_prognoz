@@ -59,8 +59,31 @@ EXPORTS_DIR = APP_HOME / "data" / "exports"  # forecast history CSV (git-ignored
 ENV_PATH = APP_HOME / ".env"
 
 OLLAMA_CLOUD_HOST = "https://ollama.com"
-DEFAULT_OLLAMA_MODEL = "deepseek-v4.1-flash"
-DEFAULT_OLLAMA_FALLBACK_MODEL = "gpt-oss:120b"
+# Free Ollama accounts only get "starter models"; ollama.com does not publish that list
+# (docs/DATA_SOURCES.md, Ollama). gpt-oss is the documented safe choice.
+DEFAULT_OLLAMA_MODEL = "gpt-oss:120b"
+DEFAULT_OLLAMA_FALLBACK_MODEL = "gpt-oss:20b"
+# Tried after OLLAMA_MODEL and OLLAMA_FALLBACK_MODEL when ollama.com answers 402/403-plan.
+FREE_OLLAMA_MODELS = ("gpt-oss:120b", "gpt-oss:20b")
+# `GET https://ollama.com/api/tags`, 2026-09-30. (name, note shown in Settings)
+KNOWN_OLLAMA_MODELS: tuple[tuple[str, str], ...] = (
+    ("gpt-oss:120b", "бесплатный тариф (по умолчанию)"),
+    ("gpt-oss:20b", "бесплатный тариф, быстрее"),
+    ("gemma4:31b", "может требовать кредиты"),
+    ("nemotron-3-super", "может требовать кредиты"),
+    ("nemotron-3-nano:30b", "может требовать кредиты"),
+    ("deepseek-v4.1-flash", "платно (кредиты)"),
+    ("deepseek-v4-pro:0813", "платно (кредиты)"),
+    ("glm-5.3-flash", "платно (кредиты)"),
+    ("glm-5.3", "платно (кредиты)"),
+    ("glm-5.2", "платно (кредиты)"),
+    ("minimax-m3", "платно (кредиты)"),
+    ("minimax-m2.7", "платно (кредиты)"),
+    ("mistral-large-3:675b", "платно (кредиты)"),
+    ("kimi-k2.6", "платно (кредиты)"),
+    ("kimi-k3", "платно (кредиты)"),
+    ("nemotron-3-ultra", "платно (кредиты)"),
+)
 
 
 class Settings(BaseSettings):

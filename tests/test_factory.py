@@ -18,8 +18,8 @@ def test_llm_built_only_when_configured(tmp_path: Path) -> None:
     cloud = build_llm(_settings(tmp_path, ollama_api_key="k"))
     assert cloud is not None
     assert cloud.host == "https://ollama.com"
-    assert cloud.model == "deepseek-v4.1-flash"
-    assert cloud.fallback_model == "gpt-oss:120b"
+    assert cloud.model == "gpt-oss:120b"
+    assert cloud.fallback_model == "gpt-oss:20b"
     local = build_llm(_settings(tmp_path, ollama_host="http://127.0.0.1:11434"))
     assert local is not None and local.host == "http://127.0.0.1:11434"
 

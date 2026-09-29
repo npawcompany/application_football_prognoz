@@ -8,12 +8,14 @@ from typing import Any
 
 import httpx
 
-from football_prognoz.config import OLLAMA_CLOUD_HOST
+from football_prognoz.config import FREE_OLLAMA_MODELS, OLLAMA_CLOUD_HOST
 
 log = logging.getLogger(__name__)
 
 # Status codes after which the fallback model is worth one more try.
-_FALLBACK_STATUSES = frozenset({404, 500, 502, 503, 504})
+# 402: "this model is not included in your free usage" / extra usage only.
+_FALLBACK_STATUSES = frozenset({402, 404, 500, 502, 503, 504})
+_PLAN_WORDS = ("subscription", "upgrade", "plan", "usage", "credit")
 
 
 class LLMError(Exception):
@@ -37,6 +39,22 @@ class LLMError(Exception):
 class LLMReply:
     text: str
     model: str
+    notice: str = ""  # Russian, set when a fallback model answered instead of OLLAMA_MODEL
+
+
+def fallback_notice(requested: str, used: str, first_error: LLMError | None) -> str:
+    """Short Russian notice shown under the AI block when another model answered."""
+    if first_error is not None and first_error.status_code == 402:
+        why = "не входит в бесплатный тариф Ollama (402)"
+    elif first_error is not None and first_error.status_code == 403:
+        why = "требует подписку Ollama (403)"
+    elif first_error is not None and first_error.status_code == 404:
+        why = "не найдена (404)"
+    elif first_error is not None and first_error.status_code:
+        why = f"недоступна (HTTP {first_error.status_code})"
+    else:
+        why = "не ответила"
+    return f"Модель {requested} {why} — ответила {used}. Сменить модель: Настройки → OLLAMA_MODEL."
 
 
 def think_for_model(model: str) -> bool | str | None:
@@ -65,18 +83,34 @@ class OllamaClient:
         fallback_model: str | None = None,
         http: httpx.Client | None = None,
         timeout: float = 90.0,
+        free_models: tuple[str, ...] | None = None,
     ) -> None:
         self._host = (host.strip() or OLLAMA_CLOUD_HOST).rstrip("/")
         self._api_key = api_key.strip()
         self.model = model.strip()
         fallback = (fallback_model or "").strip()
         self.fallback_model = fallback if fallback and fallback != self.model else None
+        if free_models is None:
+            free_models = FREE_OLLAMA_MODELS if self._is_cloud() else ()
+        self.free_models = tuple(free_models)
         self._owns = http is None
         self._http = http or httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0))
 
     @property
     def host(self) -> str:
         return self._host
+
+    def _is_cloud(self) -> bool:
+        hostname = (httpx.URL(self._host).host or "").lower()
+        return hostname == "ollama.com" or hostname.endswith(".ollama.com")
+
+    def model_chain(self) -> list[str]:
+        """OLLAMA_MODEL → OLLAMA_FALLBACK_MODEL → free cloud models, without repeats."""
+        chain = [self.model] if self.model else []
+        if self.fallback_model:
+            chain.append(self.fallback_model)
+        chain.extend(self.free_models)
+        return list(dict.fromkeys(m for m in chain if m))
 
     def close(self) -> None:
         if self._owns:
@@ -116,23 +150,25 @@ class OllamaClient:
         temperature: float = 0.2,
         json_mode: bool = True,
     ) -> LLMReply:
-        models = [self.model] if self.model else []
-        if self.fallback_model:
-            models.append(self.fallback_model)
+        models = self.model_chain()
         if not models:
             raise LLMError("Не задана модель Ollama. Укажите OLLAMA_MODEL в Настройках.")
-        last_error: LLMError | None = None
+        first_error: LLMError | None = None
         for index, model in enumerate(models):
             try:
-                return self._chat_once(model, system, user, temperature, json_mode)
+                reply = self._chat_once(model, system, user, temperature, json_mode)
             except LLMError as exc:
-                last_error = exc
+                first_error = first_error or exc
                 can_retry = index + 1 < len(models) and exc.fallback_ok
                 if not can_retry:
                     raise
-                log.warning("Ollama model %s failed (%s); trying fallback", model, exc)
-        assert last_error is not None
-        raise last_error
+                log.warning("Ollama model %s failed (%s); trying %s", model, exc, models[index + 1])
+                continue
+            if index > 0:
+                notice = fallback_notice(models[0], model, first_error)
+                return LLMReply(text=reply.text, model=reply.model, notice=notice)
+            return reply
+        raise first_error or LLMError("Ollama не ответил.")
 
     def _chat_once(
         self, model: str, system: str, user: str, temperature: float, json_mode: bool
@@ -176,6 +212,8 @@ def _error_for(response: httpx.Response, model: str) -> LLMError:
         detail = ""
     if status == 401:
         text = "Ollama отклонил запрос (401): проверьте OLLAMA_API_KEY."
+    elif status == 402:
+        text = f"Модель {model} не входит в бесплатный тариф Ollama (402)."
     elif status == 403:
         text = f"Нет доступа к модели {model} (403): проверьте тариф Ollama."
     elif status == 404:
@@ -188,4 +226,5 @@ def _error_for(response: httpx.Response, model: str) -> LLMError:
         text = f"Ошибка Ollama: HTTP {status}."
     if detail and status not in {401}:
         text = f"{text} {detail}"
-    return LLMError(text, status)
+    plan_limited = status == 403 and any(word in detail.lower() for word in _PLAN_WORDS)
+    return LLMError(text, status, fallback_ok=True if plan_limited else None)

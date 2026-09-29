@@ -70,8 +70,8 @@ def test_ollama_defaults_and_llm_configured(monkeypatch) -> None:
         monkeypatch.delenv(name, raising=False)
     base = Settings(_env_file=None)  # type: ignore[call-arg]
     assert base.ollama_host == "https://ollama.com"
-    assert base.ollama_model == "deepseek-v4.1-flash"
-    assert base.ollama_fallback_model == "gpt-oss:120b"
+    assert base.ollama_model == "gpt-oss:120b"
+    assert base.ollama_fallback_model == "gpt-oss:20b"
     assert base.is_ollama_cloud
     assert base.llm_configured is False  # cloud without a key
     assert Settings(_env_file=None, ollama_api_key="k").llm_configured is True  # type: ignore[call-arg]
