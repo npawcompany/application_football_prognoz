@@ -1,21 +1,35 @@
 #!/usr/bin/env python3
-"""Import local CSVs into SQLite and print Elo leaders (no live API)."""
+"""Import local CSVs into a separate training SQLite and print Elo leaders (no live API).
+
+The CSV results use football-data.co.uk team ids, not football-data.org ones, so they
+are never written into the app cache (data/cache/prognoz.db); use --db to pick a file.
+"""
 
 from __future__ import annotations
 
+import argparse
+from pathlib import Path
+
 from sklearn.metrics import log_loss
 
-from football_prognoz.config import ROOT_DIR, load_settings
+from football_prognoz.config import APP_HOME, ROOT_DIR, load_settings
 from football_prognoz.data.csv_loader import load_csv
 from football_prognoz.data.store import SQLiteStore
 from football_prognoz.models.elo import build_elo
 from football_prognoz.models.predictor import Predictor
 from football_prognoz.services.features import FeatureService
 
+DEFAULT_TRAIN_DB = APP_HOME / "data" / "cache" / "train.db"
 
-def main() -> None:
-    settings = load_settings()
-    store = SQLiteStore(settings.db_path)
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--db", type=Path, default=DEFAULT_TRAIN_DB, help="training SQLite file")
+    args = parser.parse_args(argv)
+    db_path = args.db.resolve()
+    if db_path == load_settings().db_path.resolve():
+        parser.error("refusing to import CSV results into the app cache; pick another --db")
+    store = SQLiteStore(db_path)
     csv_dir = ROOT_DIR / "data" / "csv"
     files = sorted(csv_dir.glob("*.csv"))
     if not files:
@@ -28,7 +42,7 @@ def main() -> None:
         store.upsert_matches(matches)
         imported += len(matches)
         print(f"{path.name}: {len(matches)} matches")
-    print(f"imported {imported} matches into {settings.db_path}")
+    print(f"imported {imported} matches into {db_path}")
 
     all_matches = [m for m in store.list_matches() if m.status.is_finished()]
     elo = build_elo(all_matches)

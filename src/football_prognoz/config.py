@@ -1,13 +1,62 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-EXPORTS_DIR = ROOT_DIR / "data" / "exports"  # CSV for VKR §3.3 (git-ignored)
-ENV_PATH = ROOT_DIR / ".env"
+PACKAGE_DIR = Path(__file__).resolve().parent
+SRC_DIR = PACKAGE_DIR.parent
+ROOT_DIR = SRC_DIR.parent  # repository root in a checkout; meaningless inside a built app
+APP_NAME = "FootballPrognoz"
+HOME_ENV = "FOOTBALL_PROGNOZ_HOME"
+
+
+def _find_assets() -> Path:
+    # `flet build` bundles `<app path>/assets` (app path = "src"); a checkout has the same.
+    for candidate in (SRC_DIR / "assets", ROOT_DIR / "assets"):
+        if candidate.is_dir():
+            return candidate
+    return SRC_DIR / "assets"
+
+
+def _user_data_dir() -> Path:
+    if sys.platform.startswith("win"):
+        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(base) / APP_NAME
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_NAME
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / APP_NAME
+
+
+def resolve_app_home(*, env: dict[str, str] | None = None, root_dir: Path | None = None) -> Path:
+    """Folder for .env, the SQLite cache and exports.
+
+    1. FOOTBALL_PROGNOZ_HOME, if set;
+    2. the repository root when running from a checkout (pyproject.toml next to src/);
+    3. FLET_APP_STORAGE_DATA inside a `flet build` app (writable per-app storage);
+    4. the OS user data folder (APPDATA / Application Support / XDG_DATA_HOME).
+    """
+    values = os.environ if env is None else env
+    root = ROOT_DIR if root_dir is None else root_dir
+    override = (values.get(HOME_ENV) or "").strip()
+    if override:
+        return Path(override).expanduser()
+    if (root / "pyproject.toml").is_file():
+        return root
+    storage = (values.get("FLET_APP_STORAGE_DATA") or "").strip()
+    if storage:
+        return Path(storage)
+    return _user_data_dir()
+
+
+ASSETS_DIR = _find_assets()
+APP_HOME = resolve_app_home()
+EXPORTS_DIR = APP_HOME / "data" / "exports"  # forecast history CSV (git-ignored)
+ENV_PATH = APP_HOME / ".env"
 
 OLLAMA_CLOUD_HOST = "https://ollama.com"
 DEFAULT_OLLAMA_MODEL = "deepseek-v4.1-flash"
@@ -43,7 +92,7 @@ class Settings(BaseSettings):
     def db_path(self) -> Path:
         path = Path(self.database_path)
         if not path.is_absolute():
-            path = ROOT_DIR / path
+            path = APP_HOME / path
         return path
 
     def favorite_codes(self) -> list[str]:

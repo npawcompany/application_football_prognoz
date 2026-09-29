@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import flet as ft
 
-from football_prognoz.config import ROOT_DIR
+from football_prognoz.config import ASSETS_DIR
 from football_prognoz.domain.country import flag_code
 from football_prognoz.ui.theme import MUTED
 
-FLAGS_DIR = ROOT_DIR / "assets" / "flags"
+FLAGS_DIR = ASSETS_DIR / "flags"
 
 
 def flag_asset(code: str | None) -> str | None:

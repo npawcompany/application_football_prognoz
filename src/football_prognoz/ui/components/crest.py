@@ -1,7 +1,7 @@
 """Official competition and club marks.
 
 Runtime prefers the football-data.org `emblem` / `crest` URL (the same files
-the API serves). Bundled PNGs from assets/crests/manifest.json are the
+the API serves). Bundled PNGs from src/assets/crests/manifest.json are the
 offline fallback. Missing codes use a colour placeholder from LEAGUE_COLORS.
 """
 
@@ -13,7 +13,7 @@ from typing import Any
 
 import flet as ft
 
-from football_prognoz.config import ROOT_DIR
+from football_prognoz.config import ASSETS_DIR
 from football_prognoz.ui.theme import FG, MUTED, SURFACE
 
 LEAGUE_COLORS: dict[str, str] = {
@@ -32,7 +32,7 @@ LEAGUE_COLORS: dict[str, str] = {
 }
 
 ASSET_PREFIX = "/crests"
-DEFAULT_MANIFEST = ROOT_DIR / "assets" / "crests" / "manifest.json"
+DEFAULT_MANIFEST = ASSETS_DIR / "crests" / "manifest.json"
 
 _manifest: dict[str, Any] | None = None
 _manifest_path: Path | None = None

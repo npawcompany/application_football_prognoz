@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-"""Export forecast_history and its calibration summary to CSV (VKR §3.3). No live API."""
+"""Export forecast_history and its calibration summary to CSV. No live API.
+
+The app has the same export behind a save dialog (Settings → Обучение).
+"""
 
 from __future__ import annotations
+
+import argparse
+from pathlib import Path
 
 from football_prognoz.config import EXPORTS_DIR, load_settings
 from football_prognoz.data.store import SQLiteStore
@@ -13,11 +19,16 @@ from football_prognoz.services.calibration import (
 )
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out-dir", type=Path, default=EXPORTS_DIR, help=f"folder (default {EXPORTS_DIR})"
+    )
+    args = parser.parse_args(argv)
     store = SQLiteStore(load_settings().db_path)
     records = store.list_forecast_records()
-    history_path = EXPORTS_DIR / "forecast_history.csv"
-    summary_path = EXPORTS_DIR / "forecast_calibration.csv"
+    history_path = args.out_dir / "forecast_history.csv"
+    summary_path = args.out_dir / "forecast_calibration.csv"
     rows = export_csv(records, history_path)
     report = calibration([r for r in records if r.model_version == MODEL_VERSION], MODEL_VERSION)
     export_calibration_csv(report, summary_path)

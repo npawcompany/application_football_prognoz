@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import flet as ft
 
+from football_prognoz.config import ASSETS_DIR
 from football_prognoz.ui.app import start_ui
-
-ROOT = Path(__file__).resolve().parents[2]
-ASSETS_DIR = ROOT / "assets"
 
 
 def main(page: ft.Page) -> None:

@@ -55,7 +55,7 @@
 ### Флаги стран (бандл, не API)
 
 - Набор: [flag-icons](https://github.com/lipis/flag-icons) v7.5.0, MIT, файлы `flags/4x3/*.svg`.
-- Скрипт: `python scripts/sync_flags.py` → `assets/flags/{code}.svg`.
+- Скрипт: `python scripts/sync_flags.py` → `src/assets/flags/{code}.svg`.
 - Коды: ISO 3166-1 alpha-2; сборные UK — `gb-eng`, `gb-sct`, `gb-wls`, `gb-nir`.
 - UI читает только бандл. Живой HTTP флагов из приложения запрещён.
 

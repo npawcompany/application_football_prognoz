@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download official football-data.org crests into assets/crests/.
+"""Download official football-data.org crests into src/assets/crests/.
 
 Live HTTP is allowed only in this script (not from the UI). Uses
 FootballDataOrgClient + RateLimiter (10 req/min). The API key is read from
@@ -18,7 +18,8 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
-from football_prognoz.config import ENV_PATH, ROOT_DIR, load_settings
+from football_prognoz.config import ASSETS_DIR as CONFIG_ASSETS_DIR
+from football_prognoz.config import ENV_PATH, load_settings
 from football_prognoz.data import FREE_COMPETITIONS
 from football_prognoz.data.football_data_org import (
     API_BASE,
@@ -30,7 +31,7 @@ from football_prognoz.domain.team import Team
 
 CREST_CDN = "https://crests.football-data.org"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-ASSETS_DIR = ROOT_DIR / "assets" / "crests"
+ASSETS_DIR = CONFIG_ASSETS_DIR / "crests"
 FREE_CODES_ORDERED = tuple(item.code for item in FREE_COMPETITIONS)
 COMPETITION_IDS = {item.code: item.id for item in FREE_COMPETITIONS}
 

@@ -89,3 +89,35 @@ def test_legacy_openai_keys_in_env_are_ignored(tmp_path: Path, monkeypatch) -> N
     assert not hasattr(settings, "openai_api_key")
     assert settings.has_ollama_key is False
     assert settings.llm_configured is False
+
+
+def test_app_home_prefers_override_then_checkout_then_flet_storage(tmp_path: Path) -> None:
+    from football_prognoz.config import resolve_app_home
+
+    checkout = tmp_path / "repo"
+    checkout.mkdir()
+    (checkout / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    custom = tmp_path / "custom"
+    assert resolve_app_home(env={"FOOTBALL_PROGNOZ_HOME": str(custom)}, root_dir=checkout) == custom
+    assert resolve_app_home(env={}, root_dir=checkout) == checkout
+    storage = tmp_path / "storage"
+    flet_env = {"FLET_APP_STORAGE_DATA": str(storage)}
+    assert resolve_app_home(env=flet_env, root_dir=bundle) == storage
+    fallback = resolve_app_home(env={}, root_dir=bundle)
+    assert fallback.name == "FootballPrognoz"
+
+
+def test_relative_database_path_resolves_against_app_home() -> None:
+    from football_prognoz.config import APP_HOME, Settings
+
+    settings = Settings(_env_file=None, database_path="data/cache/x.db")  # type: ignore[call-arg]
+    assert settings.db_path == APP_HOME / "data" / "cache" / "x.db"
+
+
+def test_assets_live_under_src_for_flet_build() -> None:
+    from football_prognoz.config import ASSETS_DIR, SRC_DIR
+
+    assert ASSETS_DIR == SRC_DIR / "assets"
+    assert (ASSETS_DIR / "crests" / "manifest.json").is_file()
