@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import flet as ft
 
 from football_prognoz.config import ASSETS_DIR
@@ -11,7 +13,9 @@ from football_prognoz.ui.theme import MUTED
 FLAGS_DIR = ASSETS_DIR / "flags"
 
 
+@lru_cache(maxsize=512)
 def flag_asset(code: str | None) -> str | None:
+    """Bundled flag URL (cached: the UI thread renders flags on every repaint)."""
     if not code:
         return None
     path = FLAGS_DIR / f"{code}.svg"

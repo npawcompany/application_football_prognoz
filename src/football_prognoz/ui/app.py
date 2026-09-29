@@ -33,6 +33,7 @@ from football_prognoz.ui.components.ai_analysis import (
     AI_NOT_CONFIGURED,
     AI_READY,
 )
+from football_prognoz.ui.components.crest import load_crest_manifest
 from football_prognoz.ui.components.settings_panel import SettingsForm
 from football_prognoz.ui.components.splash import splash_view, start_spin
 from football_prognoz.ui.components.training_panel import (
@@ -52,6 +53,12 @@ from football_prognoz.ui.runtime import (
     run_detached,
     safe_update,
 )
+from football_prognoz.ui.save_dialog import (
+    DIALOG_TIMEOUT_S,
+    SaveDialogUnavailable,
+    choose_save_path_macos,
+    dialog_kind,
+)
 from football_prognoz.ui.theme import (
     BG,
     BODY_PADDING,
@@ -69,6 +76,8 @@ SECTIONS = ("leagues", "fixtures", "match", "settings")
 NAV_INDEX = {name: index for index, name in enumerate(SECTIONS)}
 FORECAST_SECTIONS = frozenset({"fixtures", "match"})
 
+EXPORT_DIALOG_TITLE = "Куда сохранить историю прогнозов"
+
 _TRUE = frozenset({"1", "true", "yes", "on"})
 
 
@@ -85,12 +94,19 @@ def _env_text(value: str | bool | None, default: str = "") -> str:
     return text if text else default
 
 
+@dataclass(frozen=True)
+class SettingsChoices:
+    teams: tuple[Team, ...] = ()
+    by_league: tuple[tuple[Competition, tuple[Team, ...]], ...] = ()
+
+
 @dataclass
 class BootResult:
     competitions: list[Competition]
     infos: list[LeagueInfo] = field(default_factory=list)
     rejected: bool = False
     error: str | None = None
+    choices: SettingsChoices | None = None
 
 
 __all__ = ["FootballApp", "build_service", "start_ui"]
@@ -139,7 +155,11 @@ class FootballApp:
         self._training_cancel: threading.Event | None = None
         self._training_painted_at = 0.0
         self._teams_by_league: list[tuple[Competition, list[Team]]] = []
+        self._teams: tuple[Team, ...] = ()
+        self._choices: SettingsChoices | None = None
+        self._calendar_key: tuple[date, tuple[str, ...]] | None = None
         self._picker: ft.FilePicker | None = None
+        self._mac_chooser = choose_save_path_macos
         self._splash_message = "Загружаем данные…"
         self._splash_fraction: float | None = None
         self._splash_control: ft.Control | None = None
@@ -592,18 +612,22 @@ class FootballApp:
     def _start_boot(self) -> None:
         self.booting = True
         self.splash = SplashTimer(self._splash_min, self._clock)
-        self.competitions = self.service.cached_competitions()
         self._set_splash("Загружаем данные…")
         service = self.service
         has_key = not self.gate.missing
         prefetch = self.settings.prefetch_wait_on_start
 
         def work() -> BootResult:
+            # Everything here is I/O (SQLite, HTTP, asset manifest): never on the UI loop.
+            load_crest_manifest()
+            items = service.cached_competitions()
             if not has_key:
                 # No network without the required key: cached data only.
-                items = service.cached_competitions()
-                return BootResult(items, self._infos_for(service, items))
-            items = service.bootstrap()
+                return self._boot_result_for(service, items)
+            try:
+                items = service.bootstrap()
+            except Exception as exc:  # noqa: BLE001 — start with the cache, show the error
+                return self._boot_result_for(service, items, error=str(exc))
             if prefetch and items:
                 total = len(items)
                 for index, competition in enumerate(items, start=1):
@@ -611,10 +635,8 @@ class FootballApp:
                         f"Лига {index}/{total}: {competition.code}", (index - 1) / total
                     )
                     service.prefetch_competition(competition.code)
-            return BootResult(
-                items,
-                self._infos_for(service, items),
-                rejected=bool(getattr(service, "key_rejected", False)),
+            return self._boot_result_for(
+                service, items, rejected=bool(getattr(service, "key_rejected", False))
             )
 
         run_background(
@@ -625,6 +647,22 @@ class FootballApp:
             message=None,
             cancel_previous=False,
             key="boot",
+        )
+
+    def _boot_result_for(
+        self,
+        service: MatchService,
+        items: list[Competition],
+        *,
+        rejected: bool = False,
+        error: str | None = None,
+    ) -> BootResult:
+        return BootResult(
+            list(items),
+            self._infos_for(service, items),
+            rejected=rejected,
+            error=error,
+            choices=self._read_choices(service, items),
         )
 
     @staticmethod
@@ -639,8 +677,12 @@ class FootballApp:
 
     def _on_bootstrap(self, result: BootResult) -> None:
         self._boot_result = result
-        self.competitions = list(result.competitions)
-        self.league_infos = list(result.infos)
+        if result.competitions or not self.competitions:
+            self.competitions = list(result.competitions)
+        if result.infos or not self.league_infos:
+            self.league_infos = list(result.infos)
+        if result.choices is not None:
+            self._apply_choices(result.choices)
         self.splash.mark_loaded()
         remaining = self.splash.remaining()
         if remaining > 0:
@@ -649,9 +691,7 @@ class FootballApp:
         self._finish_boot()
 
     def _on_boot_fail(self, message: str) -> None:
-        self._on_bootstrap(
-            BootResult(self.service.cached_competitions(), self.league_infos, error=message)
-        )
+        self._on_bootstrap(BootResult(list(self.competitions), self.league_infos, error=message))
 
     def _finish_boot(self) -> None:
         if not self.booting:
@@ -722,14 +762,16 @@ class FootballApp:
             self._set_section("fixtures")
         self.leagues_panel.selected_code = competition.code
         self.leagues_panel.repaint()
-        days = self._league_days(competition.code)
-        self._apply_league_days(competition, days, jump=True)
+        # Days of the league come from SQLite in the background (then the season fetch).
+        self._apply_league_days(competition, [], jump=False)
         self._render_panes()
         self._load_day()
         self._refresh_league_calendar(competition)
 
-    def _league_days(self, code: str) -> list[date]:
-        getter = getattr(self.service, "cached_league_matches", None)
+    @staticmethod
+    def _league_days(service: MatchService, code: str) -> list[date]:
+        """Worker thread only (SQLite read)."""
+        getter = getattr(service, "cached_league_matches", None)
         if not callable(getter):
             return []
         try:
@@ -751,23 +793,39 @@ class FootballApp:
     def _refresh_league_calendar(self, competition: Competition) -> None:
         """Season calendar of the league in the background, for the match-day jumps."""
         generation, _cancel = self._league_job.start()
-        had_days = bool(self.calendar.league_days)
         service = self.service
         code = competition.code
 
-        def work() -> list[date]:
-            service.competition_matches(code)
-            return self._league_days(code)
+        competitions = list(self.competitions)
 
-        def ok(days: list[date]) -> None:
+        def cached_ready(days: list[date]) -> None:
+            if not self._league_job.is_current(generation) or self.league is None:
+                return
+            if self.league.code != code or not days:
+                return
+            before = self.calendar.day
+            self._apply_league_days(competition, days, jump=True)
+            if self.calendar.day != before:
+                self.calendar.refresh()
+                self._load_day()
+
+        def work() -> tuple[list[date], list[LeagueInfo]]:
+            cached = self._league_days(service, code)
+            if cached:
+                post_to_ui(self.page, lambda: cached_ready(cached))
+            service.competition_matches(code)
+            return self._league_days(service, code), self._infos_for(service, competitions)
+
+        def ok(outcome: tuple[list[date], list[LeagueInfo]]) -> None:
+            days, infos = outcome
             if not self._league_job.is_current(generation) or self.league is None:
                 return
             self._league_job.finish(generation)
             if self.league.code != code:
                 return
             before = self.calendar.day
-            self._apply_league_days(competition, days, jump=not had_days)
-            self.league_infos = self._infos_for(service, self.competitions)
+            self._apply_league_days(competition, days, jump=not self.calendar.league_days)
+            self.league_infos = infos
             self._refresh_leagues_panel()
             if self.calendar.day != before:
                 self.calendar.refresh()
@@ -803,15 +861,25 @@ class FootballApp:
         tz = local_tz()
         service = self.service
         cached: list[Match] = []
-        getter = getattr(service, "cached_day_matches", None)
-        if callable(getter):
-            try:
-                cached = list(getter(day, codes=codes, tz=tz))
-            except Exception:  # noqa: BLE001 — the network refresh follows anyway
-                cached = []
-        self.calendar.set_data(cached, loading=True)
+        key = (day, tuple(codes or ()))
+        self.calendar.set_data(self._keep_same_day(key), loading=True)
+
+        def paint_cached(rows: list[Match]) -> None:
+            if self._day_job.is_current(generation) and self.calendar.loading:
+                self._calendar_key = key
+                self.calendar.set_data(rows, loading=True)
 
         def work() -> list[Match] | None:
+            if cancel.is_set():
+                return None
+            getter = getattr(service, "cached_day_matches", None)
+            if callable(getter):
+                try:
+                    cached[:] = list(getter(day, codes=codes, tz=tz))
+                except Exception:  # noqa: BLE001 — the network refresh follows anyway
+                    cached.clear()
+                rows = list(cached)
+                post_to_ui(self.page, lambda: paint_cached(rows))
             if cancel.is_set():
                 return None
             return service.day_matches(day, codes=codes, tz=tz, force=force)
@@ -820,6 +888,7 @@ class FootballApp:
             if matches is None or not self._day_job.is_current(generation):
                 return
             self._day_job.finish(generation)
+            self._calendar_key = key
             self.calendar.set_data(matches, loading=False)
 
         def fail(message: str) -> None:
@@ -829,6 +898,10 @@ class FootballApp:
             self.calendar.set_data(cached, loading=False, error=message)
 
         run_background(self.page, work, ok, fail, cancel_previous=True, key="calendar")
+
+    def _keep_same_day(self, key: tuple[date, tuple[str, ...]]) -> list[Match]:
+        """While the day reloads, keep its rows on screen (refresh), else start empty."""
+        return list(self.calendar.matches) if key == self._calendar_key else []
 
     # --- forecast + background enrichment ----------------------------------------------
 
@@ -954,28 +1027,52 @@ class FootballApp:
     # --- settings + key gate ---------------------------------------------------------------
 
     def _team_choices(self) -> tuple[Team, ...]:
-        getter = getattr(self.service, "cached_teams", None)
-        if not callable(getter):
-            return ()
-        try:
-            return tuple(getter())
-        except Exception:  # noqa: BLE001 — settings must open even if cache is empty
-            return ()
+        return self._teams
+
+    @staticmethod
+    def _read_choices(service: MatchService, competitions: list[Competition]) -> SettingsChoices:
+        """Worker thread only: favourite-team choices from SQLite."""
+        teams: tuple[Team, ...] = ()
+        getter = getattr(service, "cached_teams", None)
+        if callable(getter):
+            try:
+                teams = tuple(getter())
+            except Exception:  # noqa: BLE001 — settings must open even if cache is empty
+                teams = ()
+        grouped: dict[str, list[Team]] = {}
+        by_league = getattr(service, "teams_by_league", None)
+        if callable(by_league):
+            try:
+                grouped = dict(by_league())
+            except Exception:  # noqa: BLE001
+                grouped = {}
+        known = {item.code: item for item in competitions}
+        pairs = tuple(
+            (known.get(code, Competition(0, code, code)), tuple(members))
+            for code, members in grouped.items()
+        )
+        return SettingsChoices(teams=teams, by_league=pairs)
+
+    def _apply_choices(self, choices: SettingsChoices) -> bool:
+        changed = choices != self._choices
+        self._choices = choices
+        self._teams = choices.teams
+        self._teams_by_league = [(comp, list(members)) for comp, members in choices.by_league]
+        return changed
 
     def _load_settings_choices(self) -> None:
-        getter = getattr(self.service, "teams_by_league", None)
-        if not callable(getter):
-            self._teams_by_league = []
-            return
-        try:
-            teams = getter()
-        except Exception:  # noqa: BLE001
-            teams = {}
-        known = {item.code: item for item in self.competitions}
-        self._teams_by_league = [
-            (known.get(code, Competition(0, code, code)), list(members))
-            for code, members in teams.items()
-        ]
+        """Refresh favourite-team choices in the background; repaint only if they changed."""
+        service = self.service
+        competitions = list(self.competitions)
+
+        def work() -> SettingsChoices:
+            return self._read_choices(service, competitions)
+
+        def ok(choices: SettingsChoices) -> None:
+            if self._apply_choices(choices) and self.section == "settings":
+                self._render_panes()
+
+        run_background(self.page, work, ok, lambda _m: None, key="choices")
 
     def _save_settings(self, payload: dict[str, str | bool]) -> None:
         self.loading = True
@@ -1007,20 +1104,23 @@ class FootballApp:
             )
             for env_key, name, default in flags:
                 write_env_value(env_key, _env_flag(payload.get(name, default)))
-            return load_settings()
+            settings = load_settings()
+            # Rate limiters are process-wide (services.factory), so the rebuild keeps
+            # the football-data.org 10 req/min window. Building opens SQLite: worker only.
+            return settings, build_service(settings)
 
-        def ok(settings: Settings) -> None:
+        def ok(outcome: tuple[Settings, MatchService]) -> None:
+            settings, service = outcome
             old_key = self.settings.football_data_api_key.strip()
             was_locked = self.gate.locked
             old_service = self.service
             self.settings = settings
-            # Rate limiters are process-wide (services.factory), so the rebuild keeps
-            # the football-data.org 10 req/min window; old HTTP clients get closed.
-            self.service = build_service(settings)
+            self.service = service
             if old_service is not self.service:
                 closer = getattr(old_service, "close", None)
                 if callable(closer):
-                    closer()
+                    # Closing HTTP clients may wait for sockets: off the UI loop too.
+                    threading.Thread(target=closer, daemon=True).start()
             self.loading = False
             self.busy = None
             self.status = "Настройки сохранены и применены."
@@ -1220,69 +1320,127 @@ class FootballApp:
         self._notify(f"Сбор данных не удался: {message}", kind="error")
 
     # --- CSV export: save dialog, data/exports as the fallback ---------------------------
+    #
+    # The click handler only flips the button to "busy" and returns. The dialog and
+    # the CSV write happen off the UI event loop (see ui/save_dialog.py for why the
+    # macOS dialog is an osascript process and not the Flet FilePicker).
+
+    def _dialog_kind(self) -> str:
+        page = self.page
+        return dialog_kind(
+            web=bool(getattr(page, "web", False)),
+            real_page=isinstance(page, ft.Page),
+        )
 
     def _file_picker(self) -> ft.FilePicker | None:
-        """Native save dialog on desktop; None in web/mobile or outside a real page."""
-        page = self.page
-        if not isinstance(page, ft.Page) or getattr(page, "web", False):
-            return None
+        """Flet FilePicker service (Windows/Linux desktop); None when unavailable."""
         if self._picker is None:
             try:
-                picker = ft.FilePicker()
+                picker = ft.FilePicker()  # a Service: registers itself on the page
                 if not is_mounted(picker):
-                    page._services.register_service(picker)  # noqa: SLF001
+                    self.page._services.register_service(picker)  # noqa: SLF001
                 self._picker = picker
             except Exception:  # noqa: BLE001 — fall back to data/exports
                 return None
         return self._picker
 
+    def _set_exporting(self, label: str | None) -> None:
+        self.training = replace(self.training, exporting=label)
+        self._repaint_training(force=True)
+
     def _export_history(self) -> None:
-        if self.training.running:
+        if self.training.running or self.training.exporting:
+            return  # one dialog / export at a time; repeated clicks are ignored
+        self.training = replace(self.training, error=None, result=None)
+        stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        file_name = f"forecast_history_{stamp}.csv"
+        kind = self._dialog_kind()
+        if kind == "macos":
+            self._set_exporting("Выберите файл…")
+            chooser = self._mac_chooser
+
+            def pick() -> Path | None:
+                EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+                return chooser(EXPORT_DIALOG_TITLE, EXPORTS_DIR, file_name)
+
+            self._run_export(None, choose=pick)
             return
-        picker = self._file_picker()
+        picker = self._file_picker() if kind == "flet" else None
         runner = getattr(self.page, "run_task", None)
         if picker is None or not callable(runner):
+            self._set_exporting("Сохраняем CSV…")
             self._run_export(None)
             return
-        stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        self._set_exporting("Выберите файл…")
 
         async def ask() -> None:
             try:
-                EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-                chosen = await picker.save_file(
-                    dialog_title="Куда сохранить историю прогнозов",
-                    file_name=f"forecast_history_{stamp}.csv",
-                    initial_directory=str(EXPORTS_DIR),
-                    file_type=ft.FilePickerFileType.CUSTOM,
-                    allowed_extensions=["csv"],
+                await asyncio.to_thread(EXPORTS_DIR.mkdir, parents=True, exist_ok=True)
+                chosen = await asyncio.wait_for(
+                    picker.save_file(
+                        dialog_title=EXPORT_DIALOG_TITLE,
+                        file_name=file_name,
+                        initial_directory=str(EXPORTS_DIR),
+                        file_type=ft.FilePickerFileType.CUSTOM,
+                        allowed_extensions=["csv"],
+                    ),
+                    timeout=DIALOG_TIMEOUT_S,
                 )
             except Exception as exc:  # noqa: BLE001 — no dialog: save to data/exports
-                self._run_export(None, note=f"Окно выбора недоступно ({exc}).")
+                self._set_exporting("Сохраняем CSV…")
+                self._run_export(None, note=f"Окно выбора недоступно ({exc or 'таймаут'}).")
                 return
             if not chosen:
-                self.training = replace(self.training, error=None, result="Экспорт отменён.")
-                self._repaint_training(force=True)
+                self._export_cancelled()
                 return
+            self._set_exporting("Сохраняем CSV…")
             self._run_export(Path(chosen))
 
         runner(ask)
 
-    def _run_export(self, target: Path | None, *, note: str | None = None) -> None:
+    def _export_cancelled(self) -> None:
+        self.training = replace(
+            self.training, exporting=None, error=None, result="Экспорт отменён."
+        )
+        self._repaint_training(force=True)
+
+    def _run_export(
+        self,
+        target: Path | None,
+        *,
+        note: str | None = None,
+        choose: Callable[[], Path | None] | None = None,
+    ) -> None:
         service = self.service
+        cancelled = object()
 
         def work():
-            if target is None:
+            path, prefix = target, note
+            if choose is not None:
+                try:
+                    path = choose()
+                except SaveDialogUnavailable as exc:
+                    path, prefix = None, f"Окно выбора недоступно ({exc})."
+                else:
+                    if path is None:
+                        return cancelled
+                post_to_ui(self.page, lambda: self._set_exporting("Сохраняем CSV…"))
+            if path is None:
                 records_path, summary_path, rows = service.export_history(EXPORTS_DIR)
             else:
-                records_path, summary_path, rows = service.export_history(records_path=target)
-            return records_path, summary_path, rows, service.calibration_report()
+                records_path, summary_path, rows = service.export_history(records_path=path)
+            return records_path, summary_path, rows, service.calibration_report(), prefix
 
         def ok(outcome) -> None:
-            records_path, summary_path, rows, report = outcome
-            prefix = f"{note} " if note else ""
+            if outcome is cancelled:
+                self._export_cancelled()
+                return
+            records_path, summary_path, rows, report, prefix = outcome
+            lead = f"{prefix} " if prefix else ""
             self.training = replace(
                 self.training,
-                export_path=f"{prefix}{records_path} ({rows} строк); сводка: {summary_path}",
+                exporting=None,
+                export_path=f"{lead}{records_path} ({rows} строк); сводка: {summary_path}",
                 stats=calibration_lines(report),
                 error=None,
             )
@@ -1290,7 +1448,9 @@ class FootballApp:
             self._notify(f"История прогнозов выгружена: {rows} строк.", kind="success")
 
         def fail(message: str) -> None:
-            self.training = replace(self.training, error=f"Экспорт не удался: {message}")
+            self.training = replace(
+                self.training, exporting=None, error=f"Экспорт не удался: {message}"
+            )
             self._repaint_training(force=True)
 
         run_detached(self.page, work, ok, fail)
@@ -1333,32 +1493,58 @@ class FootballApp:
         )
 
 
+def _clear_page(page: ft.Page) -> None:
+    cleaner = getattr(page, "clean", None)
+    if callable(cleaner):
+        cleaner()
+        return
+    controls = getattr(page, "controls", None)
+    if isinstance(controls, list):
+        controls.clear()
+
+
 def start_ui(
     page: ft.Page,
     service: MatchService | None = None,
     settings: Settings | None = None,
-) -> FootballApp:
+) -> FootballApp | None:
+    """Show the splash at once; read .env and open SQLite in the background.
+
+    Flet runs a synchronous `main(page)` on its event loop, so building the service
+    here (settings file, SQLite schema, HTTP clients) would keep the window blank.
+    Returns the app when `service` and `settings` are given (tests, screenshot
+    scripts); otherwise the app is created when the background build finishes.
+    """
     configure_window(page)
     page.title = "Football Prognoz"
-    cleaner = getattr(page, "clean", None)
-    if callable(cleaner):
-        cleaner()
-    else:
-        controls = getattr(page, "controls", None)
-        if isinstance(controls, list):
-            controls.clear()
+    _clear_page(page)
     first = splash_view("Запуск приложения…")
     page.add(first)
     updater = getattr(page, "update", None)
     if callable(updater):
         updater()
     start_spin(first)
-    settings = settings or load_settings()
-    service = service or build_service(settings)
-    if callable(cleaner):
-        cleaner()
-    else:
-        controls = getattr(page, "controls", None)
-        if isinstance(controls, list):
-            controls.clear()
-    return FootballApp(page, service, settings)
+    if service is not None and settings is not None:
+        _clear_page(page)
+        return FootballApp(page, service, settings)
+
+    def work() -> tuple[Settings, MatchService]:
+        ready = settings or load_settings()
+        return ready, service or build_service(ready)
+
+    def ok(outcome: tuple[Settings, MatchService]) -> None:
+        ready, built = outcome
+        _clear_page(page)
+        FootballApp(page, built, ready)
+
+    def fail(message: str) -> None:
+        _clear_page(page)
+        page.add(
+            ft.Container(
+                content=info_banner(f"Не удалось запустить приложение: {message}"),
+                padding=24,
+            )
+        )
+
+    run_background(page, work, ok, fail, cancel_previous=False, key="startup")
+    return None

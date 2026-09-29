@@ -25,6 +25,7 @@ class TrainingState:
     errors: tuple[str, ...] = field(default_factory=tuple)
     stats: tuple[str, ...] = ()  # short quality lines (filled when history exists)
     export_path: str | None = None
+    exporting: str | None = None  # "Выберите файл…" / "Сохраняем CSV…" while busy
 
     @property
     def fraction(self) -> float | None:
@@ -116,14 +117,25 @@ def training_panel(
         buttons.append(
             with_cursor(
                 ft.OutlinedButton(
-                    "Сохранить историю в CSV…",
-                    disabled=state.running,
+                    state.exporting or "Сохранить историю в CSV…",
+                    icon=ft.Icons.SAVE_ALT,
+                    disabled=state.running or bool(state.exporting),
                     on_click=lambda _e: on_export(),
                 ),
                 interactive=True,
             )
         )
-    body.append(ft.Row(buttons, wrap=True, spacing=8, run_spacing=8))
+    if state.exporting:
+        buttons.append(ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT))
+    body.append(
+        ft.Row(
+            buttons,
+            wrap=True,
+            spacing=8,
+            run_spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+    )
     if state.running:
         body.append(ft.ProgressBar(value=state.fraction, color=ACCENT))
         progress = f"{state.done} / {state.total}" if state.total else "подготовка"

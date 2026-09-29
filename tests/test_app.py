@@ -168,8 +168,12 @@ class FakeMatchService:
     def league_infos(self):
         return league_infos(self.competitions, {}, (), today=date.today())
 
+    day_hook = None
+
     def day_matches(self, day, *, codes=None, tz=None, force=False, now=None):
         self.day_calls.append((day, codes))
+        if self.day_hook is not None:
+            self.day_hook()
         return list(self.day_result)
 
     def cached_day_matches(self, day, *, codes=None, tz=None):
@@ -291,24 +295,39 @@ def _booted(**kwargs):
     return app, page, service
 
 
-def _drain_first(page: FakePage) -> None:
-    fn, args, kwargs, _handle = page.scheduled[0]
-    asyncio.run(fn(*args, **kwargs))
-
-
-def _drain_named(page: FakePage, index: int) -> None:
+def _run(page: FakePage, index: int) -> None:
+    ran = page.__dict__.setdefault("ran", set())
+    index = index % len(page.scheduled)
+    ran.add(index)
     fn, args, kwargs, _handle = page.scheduled[index]
     asyncio.run(fn(*args, **kwargs))
 
 
+def _drain_first(page: FakePage) -> None:
+    _run(page, 0)
+
+
+def _drain_named(page: FakePage, index: int) -> None:
+    _run(page, index)
+
+
 def _drain_last(page: FakePage) -> None:
-    fn, args, kwargs, _handle = page.scheduled[-1]
-    asyncio.run(fn(*args, **kwargs))
+    _run(page, -1)
 
 
-def test_init_with_key_reads_cache_not_network() -> None:
+def _drain_pending(page: FakePage, limit: int = 50) -> None:
+    """Run every scheduled task not run yet (and those they schedule), in order."""
+    ran = page.__dict__.setdefault("ran", set())
+    for _ in range(limit):
+        pending = [i for i in range(len(page.scheduled)) if i not in ran]
+        if not pending:
+            return
+        _run(page, pending[0])
+
+
+def test_init_touches_no_io_on_the_ui_thread() -> None:
     app, page, service = _app()
-    assert service.cached_calls == 1
+    assert service.cached_calls == 0  # even the cache is read in the boot task
     assert service.upcoming_calls == 0
     assert service.fixture_calls == 0
     assert service.forecast_calls == 0
@@ -316,7 +335,7 @@ def test_init_with_key_reads_cache_not_network() -> None:
     assert service.bootstrap_calls == 0
     assert service.prefetch_calls == []
     assert app.booting is True
-    assert app.competitions[0].code == "PL"
+    assert app.competitions == []
     assert len(page.scheduled) == 1
     assert page.overlay == [] or page.overlay[0].visible is False
 
@@ -644,11 +663,10 @@ def test_saving_a_valid_key_unlocks_without_restart(monkeypatch) -> None:
     assert app.gate.state is GateState.CHECKING and app.gate.locked
     app._goto("fixtures")
     assert app.section == "settings"  # still locked while the key is checked
-    _drain_last(page)  # key check
+    _drain_pending(page)  # key check, then the data the locked app skipped
     assert new_service.check_calls == 1
     assert app.gate.locked is False
     assert "Ключ принят" in (app.status or "")
-    _drain_last(page)  # data the locked app skipped
     assert new_service.bootstrap_calls == 1
     app._goto("leagues")
     assert app.section == "leagues"
@@ -734,9 +752,17 @@ def test_calendar_paints_cache_first_then_refreshes_in_background() -> None:
     service.cached_day = [_day_match(1, now)]
     service.day_result = [_day_match(1, now), _day_match(2, now)]
     app, page, _ = _booted(service=service)
-    assert [m.id for m in app.matches] == [1]  # instant, from SQLite
     assert app.calendar.loading is True
-    _drain_last(page)
+    assert app.matches == []  # the UI thread did not read SQLite
+    seen: list[tuple[list[int], bool]] = []
+
+    def network_call() -> None:
+        _drain_last(page)  # the cache paint the worker posted before the network call
+        seen.append(([m.id for m in app.matches], app.calendar.loading))
+
+    service.day_hook = network_call
+    _drain_named(page, len(page.scheduled) - 1)
+    assert seen == [([1], True)]  # SQLite rows first, spinner still on
     assert [m.id for m in app.matches] == [1, 2]
     assert app.calendar.loading is False
     assert service.day_calls[-1][1] is None  # all leagues
@@ -763,10 +789,9 @@ def test_selecting_a_league_filters_the_calendar() -> None:
     assert app.league.code == "PL"
     assert app.calendar.league is not None
     assert app.section == "leagues"  # wide window: calendar opens on the right
-    _drain_named(page, len(page.scheduled) - 2)  # day refresh (the last job is the season)
+    _drain_pending(page)  # day refresh + the season calendar for the match-day jumps
     assert service.day_calls[-1][1] == ["PL"]
-    _drain_last(page)
-    assert service.fixture_calls == 1  # season calendar for the match-day jumps
+    assert service.fixture_calls == 1
     app._clear_league()
     assert app.calendar.league is None
     _drain_last(page)
@@ -836,6 +861,7 @@ def test_export_asks_where_to_save_and_writes_there(tmp_path, monkeypatch) -> No
     app, page = _settings_app(service)
     picker = _FakePicker(str(tmp_path / "mine.csv"))
     monkeypatch.setattr(app, "_file_picker", lambda: picker)
+    monkeypatch.setattr(app, "_dialog_kind", lambda: "flet")
     app._export_history()
     _drain_last(page)  # the dialog
     assert picker.calls[0]["allowed_extensions"] == ["csv"]
@@ -848,9 +874,148 @@ def test_export_cancelled_in_the_dialog_writes_nothing(monkeypatch) -> None:
     service = _TrainingService()
     app, page = _settings_app(service)
     monkeypatch.setattr(app, "_file_picker", lambda: _FakePicker(None))
+    monkeypatch.setattr(app, "_dialog_kind", lambda: "flet")
     app._export_history()
     before = len(page.scheduled)
     _drain_last(page)
     assert len(page.scheduled) == before  # no export job
     assert app.training.result == "Экспорт отменён."
     assert app.training.export_path is None
+
+
+def test_export_on_macos_runs_the_dialog_off_the_ui_thread(tmp_path, monkeypatch) -> None:
+    import threading
+    import time
+
+    service = _TrainingService()
+    app, page = _settings_app(service)
+    ui_thread = threading.current_thread()
+    seen: list[bool] = []
+
+    def chooser(title, directory, name):
+        time.sleep(0.2)  # the user looks for a folder
+        seen.append(threading.current_thread() is ui_thread)
+        assert name.startswith("forecast_history_") and name.endswith(".csv")
+        return tmp_path / "picked.csv"
+
+    monkeypatch.setattr(app, "_dialog_kind", lambda: "macos")
+    app._mac_chooser = chooser
+    started = time.monotonic()
+    app._export_history()
+    assert time.monotonic() - started < 0.1  # the click handler returns at once
+    assert seen == []  # nothing ran on the UI thread
+    assert app.training.exporting == "Выберите файл…"
+    before = len(page.scheduled)
+    app._export_history()  # a second click while the dialog is open is ignored
+    assert len(page.scheduled) == before
+    _drain_last(page)
+    assert seen == [False]
+    assert app.training.exporting is None
+    assert str(tmp_path / "picked.csv") in (app.training.export_path or "")
+
+
+def test_export_on_macos_cancel_and_dialog_failure(monkeypatch) -> None:
+    from football_prognoz.ui.save_dialog import SaveDialogUnavailable
+
+    service = _TrainingService()
+    app, page = _settings_app(service)
+    monkeypatch.setattr(app, "_dialog_kind", lambda: "macos")
+    app._mac_chooser = lambda *_a: None
+    app._export_history()
+    _drain_last(page)
+    assert app.training.result == "Экспорт отменён."
+    assert app.training.exporting is None
+
+    def broken(*_a):
+        raise SaveDialogUnavailable("osascript не найден")
+
+    app._mac_chooser = broken
+    app._export_history()
+    _drain_last(page)
+    assert "Окно выбора недоступно (osascript не найден)." in (app.training.export_path or "")
+    assert "h.csv" in (app.training.export_path or "")
+
+
+# --- the UI thread never does I/O -------------------------------------------------------
+
+
+class _ThreadAudit:
+    """Wraps the service; records every method call made on the UI (test) thread."""
+
+    def __init__(self, inner) -> None:
+        import threading
+
+        self._inner = inner
+        self._ui = threading.current_thread()
+        self.on_ui: list[str] = []
+        self.off_ui: list[str] = []
+
+    def __getattr__(self, name):
+        import threading
+
+        value = getattr(self._inner, name)
+        if not callable(value):
+            return value
+
+        def call(*args, **kwargs):
+            target = self.on_ui if threading.current_thread() is self._ui else self.off_ui
+            target.append(name)
+            return value(*args, **kwargs)
+
+        return call
+
+
+def test_handlers_never_call_the_service_on_the_ui_thread(tmp_path, monkeypatch) -> None:
+    inner = FakeMatchService()
+    now = datetime.now(UTC)
+    inner.cached_day = [_day_match(1, now)]
+    inner.day_result = [_day_match(1, now), _day_match(2, now)]
+    audit = _ThreadAudit(inner)
+    page = FakePage()
+    app = FootballApp(page, audit, _settings(), splash_min_seconds=0.0)  # type: ignore[arg-type]
+    _drain_pending(page)  # boot
+    app._load_leagues(force=True)
+    app._select_league(inner.competitions[0])
+    app._clear_league()
+    app.calendar.shift_day(1)
+    app._open_match(_match())
+    app._goto("match")
+    app._goto("settings")
+    app._refresh_counts()
+    app._check_key()
+    _drain_pending(page)
+    assert audit.on_ui == []
+    for name in (
+        "cached_competitions",
+        "bootstrap",
+        "cached_day_matches",
+        "day_matches",
+        "cached_league_matches",
+        "competition_matches",
+        "forecast",
+        "enrich",
+        "cached_teams",
+        "teams_by_league",
+        "refresh_league_counts",
+        "check_key",
+        "list_competitions",
+    ):
+        assert name in audit.off_ui, name
+
+
+def test_start_ui_shows_the_splash_and_builds_the_service_in_background(monkeypatch) -> None:
+    from football_prognoz.ui import app as app_module
+
+    calls: list[str] = []
+    monkeypatch.setattr(app_module, "load_settings", lambda: calls.append("env") or _settings())
+    monkeypatch.setattr(
+        app_module, "build_service", lambda _s: calls.append("db") or FakeMatchService()
+    )
+    page = FakePage()
+    assert app_module.start_ui(page) is None
+    assert calls == []  # nothing blocking inside main(page)
+    assert len(page.controls) == 1  # the splash
+    _drain_first(page)
+    assert calls == ["env", "db"]
+    assert page.controls and page.controls[0] is not None
+    assert len(page.scheduled) >= 2  # the app booted and scheduled its own boot task
