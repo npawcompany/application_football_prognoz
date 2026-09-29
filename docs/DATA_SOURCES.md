@@ -13,12 +13,15 @@
 
 ### Endpoint’ы, которые использует приложение
 
-- `GET /v4/competitions` — список лиг. В ответе есть `area.name` / `area.code`; в UI страна лиги берётся из локальной карты free-кодов (`PL`→England и т.д.), флаг из бандла.
-- `GET /v4/competitions/{code}/matches?season=YYYY&status=&dateFrom=&dateTo=`
-- `GET /v4/competitions/{code}/standings`
+- `GET /v4/competitions` — список лиг. Маппим `id`, `code`, `name`, `emblem`, `type` (`LEAGUE` / `CUP`), `area.name`, `area.code`, `area.flag`, `currentSeason.startDate`, `currentSeason.endDate`. Даты сезона решают, серая ли лига в списках (сезон закончился или начнётся позже чем через ~6 мес.). Ответ 400/401/403 означает «ключ не принят» (замок на экран настроек). TTL 24 ч.
+- `GET /v4/competitions/{code}/matches` — календарь **текущего** сезона. Параметр `season` не передаём: API сам отдаёт `currentSeason`, это верно и для лиг июль–июнь, и для BSA (календарный год), и для WC/EC (год турнира). TTL 6 ч.
+- `GET /v4/matches?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD` — матчи всех доступных лиг за период (оба параметра обязательны вместе). Документ: Match → «Available filters for the list resource» (https://docs.football-data.org/general/v4/match.html). Период не шире 10 дней (иначе API отвечает 400). Календарь дня берёт **одну неделю за раз** (пн–вс ±1 день на часовые пояса = 9 дней), TTL 6 ч для текущих и будущих недель, 24 ч для прошедших. Поля: те же, что у матча, плюс `competition.code` / `competition.type` / `competition.emblem` (код лиги берём оттуда); матчи лиг вне free-тира отбрасываем.
+- `GET /v4/competitions/{code}/standings` — таблица. Берём **все** блоки `type=TOTAL` (у WC/EC/CL их несколько, поле `group` = `GROUP_A`…), команду не дублируем. TTL 24 ч.
 - `GET /v4/competitions/{code}/teams` — клубы/сборные сезона (по умолчанию текущий; `?season=YYYY` для прошлых). `{code}` — код или id соревнования.
-- `GET /v4/teams/{id}` — карточка клуба: `coach`, `squad`, `venue`, `address`, `area`.
-- `GET /v4/matches/{id}` — деталь матча: `venue`, `homeTeam.lineup` / `bench` (основа и запас). TTL 6 ч.
+- `GET /v4/teams/{id}` — карточка клуба: `coach`, `squad`, `venue`, `address`, `area`. Только в фоне после показа прогноза.
+- `GET /v4/matches/{id}` — деталь матча: `venue`, `homeTeam.lineup` / `bench` (основа и запас). TTL 6 ч. Только в фоне.
+
+Клиент держит лимит 10 запросов/мин сам и **не спит под замком**. Фоновые запросы деталей (`/teams/{id}`, `/matches/{id}`) ждут свободный слот не дольше 15 с, иначе считаем ответ 429 и показываем кэш.
 
 ### Поля матча (v4), которые маппим в domain
 
@@ -70,8 +73,9 @@
 
 ### Ошибки
 
-- `403` — нет/неверный ключ или лига не в тарифе.
-- `429` — превышен лимит; клиент обязан подождать.
+- `400` / `401` / `403` — нет/неверный ключ или лига не в тарифе (для `/competitions` → «ключ не принят»).
+- `429` — превышен лимит; клиент обязан подождать (или отдать кэш, если ждать дольше 15 с).
+- Нет сети / таймаут / не-JSON ответ → та же ошибка `FootballDataError`, UI берёт данные из кэша SQLite.
 
 ### Заметка изучения
 
@@ -79,6 +83,7 @@
 - URL: https://www.football-data.org/documentation/api
 - Версия: v4
 - В код: `X-Auth-Token`, matches + standings + teams + `GET /teams/{id}` (coach/squad), TTL-кэш, 10 req/min, CDN crests
+- 2026-09-29: `GET /v4/matches?dateFrom&dateTo` для календаря по дням; поля `type`, `area`, `currentSeason` у соревнований; все группы в standings; без `season` в календаре лиги
 - Лимиты: 10/мин на free
 - В доке нет: xG, injuries, гарантии lineup на SCHEDULED; часть эмблем (BSA) может отдавать CDN 404 и на `{code}.png`, и на `{id}.png`
 
