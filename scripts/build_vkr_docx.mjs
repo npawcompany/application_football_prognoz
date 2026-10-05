@@ -17,7 +17,7 @@ import { injectOfficeParts } from "./vkr_office.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const MS = path.join(ROOT, "docs/vkr/manuscript");
-const OUT = path.join(ROOT, "docs/vkr/vkr.docx");
+const OUT = path.join(ROOT, "docs/vkr/otchet-preddiplomnaya.docx");
 
 const PAGE_W = 11906, PAGE_H = 16838;
 const MARGIN = {
@@ -49,6 +49,7 @@ const FIGURE_DEFS = [
   { key: "экран лиг", file: "figures/screens/leagues.png", caption: "Экран выбора лиг" },
   { key: "экран календаря", file: "figures/screens/fixtures.png", caption: "Экран календаря матчей" },
   { key: "экран прогноза", file: "figures/screens/forecast.png", caption: "Экран прогноза матча" },
+  { key: "экран настроек", file: "figures/screens/settings.png", caption: "Экран настроек" },
 ];
 
 const figureIndex = new Map();
@@ -395,8 +396,9 @@ function titlePage() {
     center("ВЫПУСКНАЯ КВАЛИФИКАЦИОННАЯ РАБОТА", { bold: true, after: 200 }),
     center("(бакалаврская работа)", { after: 400 }),
     center("на тему:", { after: 200 }),
-    center("«Разработка настольного приложения статистического", { bold: true }),
-    center("прогнозирования исходов футбольных матчей»", { bold: true, after: 600 }),
+    center("«Разработка программного обеспечения", { bold: true }),
+    center("для прогнозирования и расчета исходов", { bold: true }),
+    center("футбольных матчей»", { bold: true, after: 600 }),
     emptyLine(), emptyLine(),
     left("Студент: _______________________________ / ____________________ /"),
     left("Группа: _______________________________"),
@@ -513,7 +515,7 @@ function assemble() {
   children.push(structuralHeading("Список используемой литературы и используемых источников"));
   children.push(...blocksToParagraphs(parseMdFile("06-literatura.md")));
   const apps = [
-    ["А", "Техническое задание на разработку настольного приложения статистического прогнозирования исходов футбольных матчей", "pril-a-tz.md"],
+    ["А", "Техническое задание на разработку программного обеспечения для прогнозирования и расчета исходов футбольных матчей", "pril-a-tz.md"],
     ["Б", "Описание локального кэша SQLite", "pril-b-bd.md"],
     ["В", "Руководство пользователя", "pril-v-rukovodstvo.md"],
     ["Г", "Листинги ключевых фрагментов", "pril-g-listingi.md"],
