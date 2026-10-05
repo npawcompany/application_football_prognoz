@@ -16,5 +16,6 @@ Always start from **`football-prognoz`** + **`skills-router`**. Load at most one
 - Flet and football-data.org: `source-driven-development` + `docs/DOC_STUDY.md`
 - Multi-module work: `virtual-company-swarm` → `subagent-orchestrator`
 - Journal: `agent-action-journal` → `.agent-journal/`
+- Diploma / practice report, методичка, draw.io, screenshots, docx: `vkr-oformlenie` and `docs/vkr/PLAN-PRAVKI.md`. Do not let `russian-editorial-review` override the TSU guidelines.
 
 Do not add LangChain/LlamaIndex. Do not load React/Vue/n8n/Figma skills unless the user asks.
