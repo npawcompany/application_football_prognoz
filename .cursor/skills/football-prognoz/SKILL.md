@@ -20,6 +20,7 @@ Stack: **Python 3.11+**, Flet, httpx, pandas, SQLite, scikit-learn, Elo + Poisso
 | Flet / API fields | `source-driven-development` | `docs/DOC_STUDY.md` |
 | Multi-file feature | `virtual-company-swarm` | `subagent-orchestrator` |
 | Failures / RCA | `agent-action-journal` | `debugging-and-error-recovery` |
+| Diploma text, docx, draw.io, screenshots | `vkr-oformlenie` | `docs/vkr/PLAN-PRAVKI.md` |
 
 Router: `skills-router`. Do not co-load overlapping orchestration skills.
 

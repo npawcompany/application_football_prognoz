@@ -29,3 +29,5 @@
 14. scikit-learn User Guide [Электронный ресурс]. URL: https://scikit-learn.org/stable/user_guide.html (дата обращения: 22.09.2026).
 
 15. SQLite Documentation [Электронный ресурс]. URL: https://www.sqlite.org/docs.html (дата обращения: 22.09.2026).
+
+16. ГОСТ Р 59194-2020. Управление требованиями. Основные положения. М. : Стандартинформ, 2020.

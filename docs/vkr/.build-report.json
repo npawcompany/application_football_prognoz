@@ -1,5 +1,5 @@
 {
-  "out": "/Users/apinyangor/Projects/application_football_prognoz/docs/vkr/vkr.docx",
+  "out": "/workspace/docs/vkr/otchet-preddiplomnaya.docx",
   "figures": [
     {
       "num": 1,
@@ -57,6 +57,12 @@
       "num": 10,
       "key": "экран прогноза",
       "file": "figures/screens/forecast.png",
+      "ok": true
+    },
+    {
+      "num": 11,
+      "key": "экран настроек",
+      "file": "figures/screens/settings.png",
       "ok": true
     }
   ],

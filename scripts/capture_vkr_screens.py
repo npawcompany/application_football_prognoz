@@ -92,6 +92,60 @@ def seed_sample_db(db_path: Path) -> None:
     _log(f"seeded {db_path.name}: comps={len(items)} matches={len(matches)} standings={len(rows)}")
 
 
+def install_offline_football_data() -> None:
+    """Answer football-data.org from local samples so screens show the UI, not a rejected key."""
+    import httpx
+
+    competitions = json.loads((SAMPLES / "competitions.json").read_text(encoding="utf-8"))
+    matches = json.loads((SAMPLES / "matches.json").read_text(encoding="utf-8"))
+    standings = json.loads((SAMPLES / "standings.json").read_text(encoding="utf-8"))
+    for raw in matches.get("matches") or []:
+        raw.setdefault("competition", {"id": 2021, "name": "Premier League", "code": "PL"})
+
+    class _SampleResponse:
+        def __init__(self, payload: dict) -> None:
+            self.status_code = 200
+            self._payload = payload
+
+        def json(self) -> dict:
+            return self._payload
+
+    original_get = httpx.Client.get
+
+    def _get(self, url, *args, **kwargs):  # type: ignore[no-untyped-def]
+        base = str(getattr(self, "base_url", "") or "")
+        target = str(url)
+        if "football-data.org" not in base and "football-data.org" not in target:
+            return original_get(self, url, *args, **kwargs)
+        path = target.split("?", 1)[0].rstrip("/")
+        if path.endswith("/standings"):
+            return _SampleResponse(standings)
+        if path.endswith("/competitions"):
+            return _SampleResponse(competitions)
+        if path.endswith("/teams"):
+            return _SampleResponse({"teams": []})
+        marker = "/matches/"
+        if marker in f"{path}/" and not path.endswith("/matches"):
+            raw_id = path.rsplit("/", 1)[-1]
+            found = next(
+                (item for item in matches.get("matches") or [] if str(item.get("id")) == raw_id),
+                None,
+            )
+            if found is None:
+                return _SampleResponse({})
+            one = dict(found)
+            one.setdefault("competition", matches.get("competition") or {"code": "PL"})
+            return _SampleResponse(one)
+        if path.endswith("/matches"):
+            return _SampleResponse(matches)
+        if "/teams/" in f"{path}/":
+            raw_id = path.rsplit("/", 1)[-1]
+            return _SampleResponse({"id": int(raw_id) if raw_id.isdigit() else 0, "name": "Team", "squad": []})
+        return _SampleResponse({})
+
+    httpx.Client.get = _get  # type: ignore[method-assign]
+
+
 def prepare_env() -> None:
     # Dummy key so the UI boots into Leagues (not the empty-key Settings gate).
     # Client calls fail and fall back to the seeded SQLite cache — no live API needed.
@@ -123,6 +177,7 @@ def main() -> None:
     if LOG.exists():
         LOG.unlink()
     prepare_env()
+    install_offline_football_data()
     seed_sample_db(TMP_DB)
 
     import flet as ft
